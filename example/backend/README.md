@@ -1,6 +1,6 @@
 # Backend API for Chunked Upload Example
 
-This is a Node.js/Express backend that provides AWS S3 multipart upload APIs for the React Native chunked upload example app.
+This is a Node.js/Express backend that provides AWS S3 multipart upload APIs for the React Native `react-native-chunk-upload` example app. It supports both AWS S3 (production) and LocalStack (local development).
 
 ## Features
 
@@ -8,6 +8,9 @@ This is a Node.js/Express backend that provides AWS S3 multipart upload APIs for
 - ✅ Signed URL generation for secure uploads
 - ✅ Thumbnail upload support
 - ✅ Simple (non-chunked) upload support
+- ✅ LocalStack integration for local development
+- ✅ Web interface to view uploaded files
+- ✅ File management (list, download, clear)
 - ✅ CORS enabled for React Native apps
 
 ## Setup
@@ -19,6 +22,8 @@ LocalStack provides a local AWS S3 emulator, perfect for testing without real AW
 1. **Install dependencies:**
 
 ```bash
+bun install
+# or
 npm install
 ```
 
@@ -71,12 +76,16 @@ npm run dev
 - `npm run localstack:down` - Stop LocalStack
 - `npm run localstack:setup` - Create bucket and configure CORS
 - `npm run localstack:logs` - View LocalStack logs
+- `npm run localstack:download` - Download all files from LocalStack
+- `npm run localstack:clear` - Clear all files from LocalStack (with confirmation)
 
 ### Option 2: Using Real AWS S3
 
 1. **Install dependencies:**
 
 ```bash
+bun install
+# or
 npm install
 ```
 
@@ -105,14 +114,14 @@ PORT=3000
 [
   {
     "AllowedHeaders": ["*"],
-    "AllowedMethods": ["GET", "PUT", "POST", "HEAD"],
+    "AllowedMethods": ["GET", "PUT", "POST", "HEAD", "DELETE"],
     "AllowedOrigins": ["*"],
     "ExposeHeaders": ["ETag"]
   }
 ]
 ```
 
-4. Start the server:
+4. **Start the server:**
 
 ```bash
 npm start
@@ -214,6 +223,58 @@ Get signed URL for simple (non-chunked) upload.
 }
 ```
 
+### GET /api/files
+
+List all uploaded files in the bucket.
+
+**Response:**
+```json
+{
+  "files": [
+    {
+      "key": "uploads/photo/1234567890-abc123.jpg",
+      "size": 1024000,
+      "lastModified": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+### GET /api/files/:key
+
+Get a signed download URL for a specific file.
+
+**Response:**
+```json
+{
+  "url": "https://s3.amazonaws.com/...",
+  "key": "uploads/photo/1234567890-abc123.jpg"
+}
+```
+
+### DELETE /api/files
+
+Delete all files from the bucket. **Only available when using LocalStack** (safety feature).
+
+**Response:**
+```json
+{
+  "message": "Files cleared successfully",
+  "deleted": 10,
+  "failed": 0
+}
+```
+
+## Web Interface
+
+When the server is running, you can access a web interface at `http://localhost:3000` to:
+
+- View all uploaded files
+- See file thumbnails (for images)
+- Download files
+- Filter thumbnails
+- View file statistics
+
 ## AWS IAM Permissions
 
 Your AWS IAM user/role needs the following permissions:
@@ -227,12 +288,18 @@ Your AWS IAM user/role needs the following permissions:
       "Action": [
         "s3:PutObject",
         "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:ListBucket",
         "s3:CreateMultipartUpload",
         "s3:CompleteMultipartUpload",
         "s3:AbortMultipartUpload",
-        "s3:ListMultipartUploadParts"
+        "s3:ListMultipartUploadParts",
+        "s3:PutBucketCors"
       ],
-      "Resource": "arn:aws:s3:::your-bucket-name/*"
+      "Resource": [
+        "arn:aws:s3:::your-bucket-name",
+        "arn:aws:s3:::your-bucket-name/*"
+      ]
     }
   ]
 }
@@ -250,6 +317,7 @@ Your AWS IAM user/role needs the following permissions:
 6. Consider using AWS IAM roles instead of access keys
 7. Implement proper error handling and logging
 8. Add request size limits
+9. Restrict DELETE endpoint to authenticated admin users only
 
 ## Testing
 
@@ -265,5 +333,17 @@ curl -X POST http://localhost:3000/api/upload/chunks \
     "contentType": "image/jpeg",
     "extension": "jpg"
   }'
+
+# List all files
+curl http://localhost:3000/api/files
+
+# Get download URL for a file
+curl http://localhost:3000/api/files/uploads%2Fphoto%2F1234567890-abc123.jpg
+
+# Clear all files (LocalStack only)
+curl -X DELETE http://localhost:3000/api/files
 ```
 
+## License
+
+MIT

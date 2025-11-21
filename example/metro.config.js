@@ -14,7 +14,7 @@ config.resolver.nodeModulesPaths = [
 ];
 
 config.resolver.extraNodeModules = {
-  "react-native-chunked-upload": "..",
+  "react-native-chunk-upload": "..",
 };
 
 module.exports = config;

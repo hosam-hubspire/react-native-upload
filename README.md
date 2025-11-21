@@ -1,40 +1,55 @@
-# react-native-chunked-upload
+# react-native-chunk-upload
 
 A generalized React Native package for chunked file uploads with progress tracking. This package handles multipart uploads for large files, supports concurrent uploads, and provides detailed progress callbacks.
 
 ## Features
 
-- ✅ Chunked uploads for large files (configurable chunk size)
+- ✅ Chunked uploads for large files (configurable chunk size, up to 4GB)
 - ✅ Concurrent file and chunk uploads
-- ✅ Progress tracking per file and overall progress
+- ✅ Real-time progress tracking per file and overall progress
 - ✅ Support for photos and videos
+- ✅ Automatic video thumbnail generation using `expo-video-thumbnails`
 - ✅ Thumbnail upload support for videos
-- ✅ Simple single-file upload option
-- ✅ TypeScript support
+- ✅ Simple single-file upload option (with progress tracking)
+- ✅ Multiple file uploads (both chunked and simple)
+- ✅ TypeScript support with full type definitions
 - ✅ Expo compatible
+- ✅ Error handling with detailed failure reasons
+- ✅ LocalStack support for local development and testing
 
 ## Installation
 
 ```bash
-npm install react-native-chunked-upload
+npm install react-native-chunk-upload
 # or
-yarn add react-native-chunked-upload
+yarn add react-native-chunk-upload
 # or
-bun add react-native-chunked-upload
+bun add react-native-chunk-upload
 ```
 
 ## Peer Dependencies
 
-This package requires the following peer dependency:
+This package requires the following peer dependencies:
 
 - `expo-file-system` - For file system operations
+- `react-native` - React Native runtime
 
 ```bash
-npm install expo-file-system
+npm install expo-file-system react-native
 # or
-yarn add expo-file-system
+yarn add expo-file-system react-native
 # or
-bun add expo-file-system
+bun add expo-file-system react-native
+```
+
+For video thumbnail generation (optional but recommended for videos):
+
+```bash
+npm install expo-video-thumbnails
+# or
+yarn add expo-video-thumbnails
+# or
+bun add expo-video-thumbnails
 ```
 
 ## Usage
@@ -49,15 +64,16 @@ import {
   uploadMultipleFiles,
   UploadConfig,
   FileUploadConfig,
-} from "react-native-chunked-upload";
+} from "react-native-chunk-upload";
 
 // Configure your upload
 const uploadConfig: UploadConfig = {
   // Required: Function to get signed URLs for chunks
   getSignedUrls: async ({ mediaType, totalParts, contentType, extension }) => {
     // Call your backend API to get signed URLs
-    const response = await fetch("/api/get-signed-urls", {
+    const response = await fetch("/api/upload/chunks", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         mediaType,
         totalParts,
@@ -65,6 +81,7 @@ const uploadConfig: UploadConfig = {
         extension,
       }),
     });
+    if (!response.ok) throw new Error("Failed to get signed URLs");
     const data = await response.json();
     return {
       urls: data.urls, // Array of signed URLs, one per chunk
@@ -76,19 +93,23 @@ const uploadConfig: UploadConfig = {
   // Required: Function to mark upload as complete
   markUploadComplete: async ({ eTags, key, uploadId }) => {
     // Call your backend API to complete the multipart upload
-    const response = await fetch("/api/complete-upload", {
+    const response = await fetch("/api/upload/complete", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ eTags, key, uploadId }),
     });
+    if (!response.ok) throw new Error("Failed to complete upload");
     return response.json();
   },
 
   // Optional: For video thumbnail uploads
   getThumbnailSignedUrl: async ({ contentType, extension }) => {
-    const response = await fetch("/api/get-thumbnail-url", {
+    const response = await fetch("/api/upload/thumbnail", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contentType, extension }),
     });
+    if (!response.ok) throw new Error("Failed to get thumbnail URL");
     const data = await response.json();
     return { url: data.url, key: data.key };
   },
@@ -105,6 +126,7 @@ const uploadConfig: UploadConfig = {
   // Optional: Progress callbacks
   onProgress: (fileIndex, progress) => {
     console.log(`File ${fileIndex}: ${progress.percentComplete}%`);
+    // progress includes: percentComplete, uploadedBytes, totalBytes, uploadFailed, uploadCompleted
   },
   onTotalProgress: (progress) => {
     console.log(`Overall: ${progress.overallPercentComplete}%`);
@@ -114,7 +136,7 @@ const uploadConfig: UploadConfig = {
   chunkSize: 5 * 1024 * 1024, // 5MB chunks (default)
   concurrentFileUploadLimit: 3, // Max 3 files at once (default)
   concurrentChunkUploadLimit: 6, // Max 6 chunks at once (default)
-  maxFileSizeMB: 100, // Max file size (default)
+  maxFileSizeMB: 4096, // Max file size in MB (default: 4096MB = 4GB)
 };
 
 // Upload a single file
@@ -145,7 +167,7 @@ const files: FileUploadConfig[] = [
     filePath: "/path/to/video.mp4",
     fileSize: 1024 * 1024 * 50,
     mediaType: "video",
-    thumbnailPath: "/path/to/thumbnail.jpg",
+    thumbnailPath: "/path/to/thumbnail.jpg", // Generated using expo-video-thumbnails
     contentType: "video/mp4",
     extension: "mp4",
   },
@@ -163,7 +185,8 @@ For smaller files that don't need chunking:
 import {
   uploadSimpleFile,
   uploadMultipleSimpleFiles,
-} from "react-native-chunked-upload";
+  SimpleUploadConfig,
+} from "react-native-chunk-upload";
 
 // Upload a single file
 const result = await uploadSimpleFile({
@@ -175,21 +198,47 @@ const result = await uploadSimpleFile({
 });
 
 // Upload multiple files
-const results = await uploadMultipleSimpleFiles(
-  [
-    {
-      signedUrl: "https://s3.amazonaws.com/bucket/file1.jpg?signature=...",
-      filePath: "/path/to/file1.jpg",
-      onProgress: (percentage) => console.log(`File 1: ${percentage}%`),
-    },
-    {
-      signedUrl: "https://s3.amazonaws.com/bucket/file2.jpg?signature=...",
-      filePath: "/path/to/file2.jpg",
-      onProgress: (percentage) => console.log(`File 2: ${percentage}%`),
-    },
-  ],
-  3 // Optional: concurrency limit (default: 6)
-);
+const uploadConfigs: SimpleUploadConfig[] = [
+  {
+    signedUrl: "https://s3.amazonaws.com/bucket/file1.jpg?signature=...",
+    filePath: "/path/to/file1.jpg",
+    onProgress: (percentage) => console.log(`File 1: ${percentage}%`),
+  },
+  {
+    signedUrl: "https://s3.amazonaws.com/bucket/file2.jpg?signature=...",
+    filePath: "/path/to/file2.jpg",
+    onProgress: (percentage) => console.log(`File 2: ${percentage}%`),
+  },
+];
+
+const results = await uploadMultipleSimpleFiles(uploadConfigs, 3); // Optional: concurrency limit
+```
+
+### Video Thumbnail Generation
+
+The package supports automatic thumbnail generation for videos using `expo-video-thumbnails`:
+
+```typescript
+import * as VideoThumbnails from "expo-video-thumbnails";
+
+async function generateVideoThumbnail(videoUri: string): Promise<string> {
+  const { uri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
+    time: 1000, // Get thumbnail at 1 second
+    quality: 0.8,
+  });
+  return uri;
+}
+
+// When selecting a video
+const videoFile: FileUploadConfig = {
+  fileIndex: 0,
+  filePath: videoUri,
+  fileSize: videoSize,
+  mediaType: "video",
+  contentType: "video/mp4",
+  extension: "mp4",
+  thumbnailPath: await generateVideoThumbnail(videoUri), // Generate thumbnail
+};
 ```
 
 ## API Reference
@@ -209,7 +258,7 @@ Configuration object for chunked uploads.
 - `chunkSize` (optional): Size of each chunk in bytes (default: 5MB)
 - `concurrentFileUploadLimit` (optional): Max concurrent file uploads (default: 3)
 - `concurrentChunkUploadLimit` (optional): Max concurrent chunk uploads (default: 6)
-- `maxFileSizeMB` (optional): Maximum file size in MB (default: 100)
+- `maxFileSizeMB` (optional): Maximum file size in MB (default: 4096)
 
 #### `FileUploadConfig`
 
@@ -229,11 +278,25 @@ Progress information for a file upload.
 
 - `totalParts`: Total number of chunks
 - `uploadedParts`: Number of uploaded chunks
-- `percentComplete`: Upload percentage
+- `percentComplete`: Upload percentage (0-100)
 - `uploadedBytes`: Bytes uploaded so far
 - `totalBytes`: Total file size
 - `uploadFailed`: Whether upload failed
 - `uploadCompleted`: Whether upload completed
+- `reason` (optional): Failure reason if upload failed
+
+#### `UploadFileResult`
+
+Result of a file upload.
+
+- `fileIndex`: File index
+- `mediaType`: 'photo' or 'video'
+- `key`: S3 key of uploaded file
+- `thumbnailKey` (optional): S3 key of thumbnail (for videos)
+- `height` (optional): Image/video height
+- `width` (optional): Image/video width
+- `uploadFailed` (optional): Whether upload failed
+- `reason` (optional): Failure reason if upload failed
 
 ### Functions
 
@@ -251,21 +314,24 @@ Returns: `Promise<UploadFileResult[]>`
 
 #### `uploadSimpleFile(uploadConfig)`
 
-Upload a single file without chunking.
+Upload a single file without chunking. Supports progress tracking via XMLHttpRequest.
 
-Returns: `Promise<FileSystemUploadResult>`
+Returns: `Promise<{ status: number; headers: Record<string, string>; body: string }>`
 
 #### `uploadMultipleSimpleFiles(files, concurrency?)`
 
 Upload multiple files concurrently without chunking.
 
-Returns: `Promise<FileSystemUploadResult[]>`
+- `files`: Array of `SimpleUploadConfig` objects
+- `concurrency` (optional): Maximum concurrent uploads (default: 6)
+
+Returns: `Promise<Array<{ status: number; headers: Record<string, string>; body: string }>>`
 
 ## Example: Integration with GraphQL
 
 ```typescript
 import { ApolloClient } from "@apollo/client";
-import { uploadMultipleFiles, UploadConfig } from "react-native-chunked-upload";
+import { uploadMultipleFiles, UploadConfig } from "react-native-chunk-upload";
 import { GET_UPLOAD_CHUNK, MARK_UPLOAD_COMPLETE } from "./graphql";
 
 const client = new ApolloClient({
@@ -311,22 +377,47 @@ const uploadConfig: UploadConfig = {
 
 ## Example App
 
-An example React Native app demonstrating the package usage is available in the `example/` directory. To run it:
+An example React Native app demonstrating the package usage is available in the `example/` directory. The example includes:
+
+- Full React Native Expo app with file selection
+- Backend server with AWS S3 integration
+- LocalStack support for local development
+- Video thumbnail generation
+- Progress tracking UI
+- Error handling with detailed messages
+- Multiple upload methods (chunked and simple)
+
+To run the example:
 
 ```bash
 cd example
-npm install  # or bun install
+bun install  # or npm install
 npm start    # or bun start
 ```
 
-The example app shows:
-- Image and video selection
-- Chunked upload with progress tracking
-- Simple upload for smaller files
-- Multiple file uploads
-- Error handling
+See the [example README](./example/README.md) for detailed setup instructions.
 
-See the [example README](./example/README.md) for more details.
+## Backend Requirements
+
+Your backend needs to provide the following endpoints:
+
+1. **POST /api/upload/chunks** - Get signed URLs for multipart upload chunks
+2. **POST /api/upload/complete** - Complete multipart upload
+3. **POST /api/upload/thumbnail** - Get signed URL for thumbnail upload (optional, for videos)
+4. **POST /api/upload/simple** - Get signed URL for simple upload (optional)
+
+See the example backend in `example/backend/` for a complete implementation using AWS S3 and LocalStack.
+
+## LocalStack Support
+
+The package works seamlessly with LocalStack for local development and testing. The example backend includes:
+
+- LocalStack S3 setup
+- Docker Compose configuration
+- Scripts for managing LocalStack
+- File viewing and management interface
+
+See `example/backend/README.md` for LocalStack setup instructions.
 
 ## License
 

@@ -17,7 +17,7 @@ import {
   type UploadConfig,
   type FileUploadConfig,
   type SimpleUploadConfig,
-} from "react-native-chunked-upload";
+} from "react-native-chunk-upload";
 
 // Configuration - Update this to match your backend URL
 const API_BASE_URL = __DEV__

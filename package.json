@@ -1,5 +1,5 @@
 {
-  "name": "react-native-chunked-upload",
+  "name": "react-native-chunk-upload",
   "version": "0.0.1",
   "description": "A generalized React Native package for chunked file uploads with progress tracking",
   "main": "dist/index.js",
