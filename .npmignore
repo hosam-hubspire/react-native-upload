@@ -1,0 +1,58 @@
+# Source files
+src/
+*.ts
+*.tsx
+
+# Example and test files - MUST be excluded
+example/
+**/example/
+**/examples/
+test/
+tests/
+__tests__/
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+
+# Configuration files
+tsconfig.json
+.gitignore
+.gitattributes
+.editorconfig
+.eslintrc*
+.prettierrc*
+
+# Logs and temporary files
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.DS_Store
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build artifacts (keep dist/)
+*.map
+coverage/
+.nyc_output/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Misc
+*.tgz
+.cache/
+bun.lock

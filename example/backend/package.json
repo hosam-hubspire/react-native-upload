@@ -1,0 +1,28 @@
+{
+  "name": "@example/backend",
+  "version": "1.0.0",
+  "description": "Backend API for react-native-chunked-upload example",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "localstack:up": "docker-compose up -d",
+    "localstack:down": "docker-compose down",
+    "localstack:setup": "node setup-localstack.js",
+    "localstack:logs": "docker-compose logs -f localstack",
+    "localstack:download": "node download-files.js",
+    "localstack:clear": "node clear-files.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.490.0",
+    "@aws-sdk/s3-request-presigner": "^3.490.0",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "private": true
+}

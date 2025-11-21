@@ -1,0 +1,5 @@
+# Ignore everything except what's needed
+packages/*/node_modules/
+*.log
+.DS_Store
+

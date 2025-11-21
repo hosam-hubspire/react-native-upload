@@ -1,0 +1,34 @@
+{
+  "name": "react-native-chunked-upload",
+  "version": "0.0.1",
+  "description": "A generalized React Native package for chunked file uploads with progress tracking",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "bun run build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "react-native",
+    "file-upload",
+    "chunked-upload",
+    "multipart-upload",
+    "expo",
+    "upload"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "expo-file-system": "*",
+    "react-native": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.9.2"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
+}
