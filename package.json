@@ -1,5 +1,5 @@
 {
-  "name": "react-native-chunk-upload",
+  "name": "@hosam-hsm/react-native-chunk-upload",
   "version": "0.1.0",
   "description": "A generalized React Native package for chunked file uploads with progress tracking",
   "main": "dist/index.js",
@@ -19,6 +19,9 @@
   ],
   "author": "",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
     "expo-file-system": "*"
   },
