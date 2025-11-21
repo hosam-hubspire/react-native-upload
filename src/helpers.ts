@@ -1,5 +1,3 @@
-import { Image } from "react-native";
-
 /**
  * Gets the dimensions (width and height) of an image from its URI.
  * Uses React Native's Image.getSize method.
@@ -18,8 +16,12 @@ import { Image } from "react-native";
  * }
  * ```
  */
-const getImageSize = (uri: string) =>
-  new Promise<{ height: number; width: number }>((resolve, reject) => {
+export const getImageSize = async (
+  uri: string
+): Promise<{ height: number; width: number }> => {
+  const { Image } = await import("react-native");
+
+  return new Promise<{ height: number; width: number }>((resolve, reject) => {
     Image.getSize(
       uri,
       (width, height) => {
@@ -30,3 +32,4 @@ const getImageSize = (uri: string) =>
       }
     );
   });
+};

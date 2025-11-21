@@ -4,7 +4,7 @@ A generalized React Native package for file uploads with automatic chunking. Thi
 
 ## Features
 
-- ✅ **Automatic upload method selection** - Automatically uses chunked upload for large files and simple upload for smaller files
+- ✅ Automatic upload method selection - Automatically uses chunked upload for large files and simple upload for smaller files
 - ✅ Concurrent file and chunk uploads with progress tracking
 - ✅ Real-time progress tracking per file and overall progress
 - ✅ Support for photos and videos
@@ -113,15 +113,6 @@ const uploadConfig: UnifiedUploadConfig = {
     if (!response.ok) throw new Error("Failed to get thumbnail URL");
     const data = await response.json();
     return { url: data.url, key: data.key };
-  },
-
-  // Optional: For getting image dimensions
-  getImageSize: async (filePath) => {
-    // Use your preferred image size detection library
-    // Example with expo-image-manipulator:
-    // const manipResult = await ImageManipulator.manipulateAsync(filePath);
-    // return { height: manipResult.height, width: manipResult.width };
-    return { height: 0, width: 0 };
   },
 
   // Optional: Progress callbacks
@@ -254,7 +245,6 @@ Configuration object for unified uploads.
 - `getUploadUrl` (required): Unified function to get signed URLs for both chunked and simple uploads. The library calls this with `uploadType: "chunked"` or `uploadType: "simple"` based on file size.
 - `markUploadComplete` (required): Function to complete chunked multipart uploads
 - `getThumbnailSignedUrl` (optional): Function to get signed URL for video thumbnails
-- `getImageSize` (optional): Function to get image/video dimensions
 - `onProgress` (optional): Callback for per-file progress updates
 - `onTotalProgress` (optional): Callback for overall progress across all files
 - `chunkSize` (optional): Size of each chunk in bytes (default: 5MB)

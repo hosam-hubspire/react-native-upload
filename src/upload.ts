@@ -13,6 +13,7 @@ import {
 } from "./types";
 import { mapConcurrent } from "./concurrent";
 import { generateVideoThumbnail } from "./thumbnail";
+import { getImageSize } from "./helpers";
 
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_CONCURRENT_FILE_UPLOAD_LIMIT = 3;
@@ -275,11 +276,13 @@ async function readAndUploadFileAsChunks({
             getThumbnailSignedUrl: config.getThumbnailSignedUrl,
           });
 
-          if (config.getImageSize) {
+          try {
             const { height: calculatedHeight, width: calculatedWidth } =
-              await config.getImageSize(finalThumbnailPath);
+              await getImageSize(finalThumbnailPath);
             height = calculatedHeight;
             width = calculatedWidth;
+          } catch (error) {
+            console.error("Failed to get thumbnail image size:", error);
           }
 
           thumbnailKey = thumbKey;
@@ -290,11 +293,13 @@ async function readAndUploadFileAsChunks({
         }
       }
     } else {
-      if (config.getImageSize) {
+      try {
         const { height: calculatedHeight, width: calculatedWidth } =
-          await config.getImageSize(filePath);
+          await getImageSize(filePath);
         height = calculatedHeight;
         width = calculatedWidth;
+      } catch (error) {
+        console.error("Failed to get image size:", error);
       }
     }
 
@@ -835,7 +840,6 @@ export async function uploadFiles(
       getThumbnailSignedUrl: config.getThumbnailSignedUrl,
       onProgress: config.onProgress,
       onTotalProgress: config.onTotalProgress,
-      getImageSize: config.getImageSize,
     };
 
     const chunkedResults = await uploadMultipleFiles(
@@ -911,10 +915,10 @@ export async function uploadFiles(
         let width = 0;
         let thumbnailKey: string | undefined;
 
-        // Get image size if callback provided
-        if (config.getImageSize && !uploadFailed) {
+        // Get image size
+        if (!uploadFailed) {
           try {
-            const size = await config.getImageSize(file.filePath);
+            const size = await getImageSize(file.filePath);
             height = size.height;
             width = size.width;
           } catch (error) {

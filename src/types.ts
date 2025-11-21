@@ -181,15 +181,6 @@ export interface UploadConfig {
     overallPercentComplete: number;
     totalUploadedBytes: number;
   }) => void;
-  /**
-   * Optional function to get image/video dimensions.
-   *
-   * @param filePath - Path to the file
-   * @returns Promise resolving to height and width in pixels
-   */
-  getImageSize?: (
-    filePath: string
-  ) => Promise<{ height: number; width: number }>;
 }
 
 /**
@@ -285,13 +276,4 @@ export interface UnifiedUploadConfig {
     overallPercentComplete: number;
     totalUploadedBytes: number;
   }) => void;
-  /**
-   * Optional function to get image/video dimensions.
-   *
-   * @param filePath - Path to the file
-   * @returns Promise resolving to height and width in pixels
-   */
-  getImageSize?: (
-    filePath: string
-  ) => Promise<{ height: number; width: number }>;
 }
