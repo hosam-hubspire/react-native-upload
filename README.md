@@ -28,14 +28,13 @@ bun add react-native-chunk-upload
 This package requires the following peer dependencies:
 
 - `expo-file-system` - For file system operations
-- `react-native` - React Native runtime
 
 ```bash
-npm install expo-file-system react-native
+npm install expo-file-system
 # or
-yarn add expo-file-system react-native
+yarn add expo-file-system
 # or
-bun add expo-file-system react-native
+bun add expo-file-system
 ```
 
 For automatic video thumbnail generation (optional - only needed if you plan to upload videos):
