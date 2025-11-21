@@ -11,9 +11,7 @@ import {
   SignedUrlResponse,
   SimpleSignedUrlResponse,
 } from "./types";
-import { mapConcurrent } from "./concurrent";
-import { generateVideoThumbnail } from "./thumbnail";
-import { getImageSize } from "./helpers";
+import { mapConcurrent, generateVideoThumbnail, getImageSize } from "./helpers";
 
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_CONCURRENT_FILE_UPLOAD_LIMIT = 3;
