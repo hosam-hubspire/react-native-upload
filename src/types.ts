@@ -30,7 +30,7 @@ export interface FileUploadConfig {
   fileSize: number;
   /** Type of media: 'photo' or 'video' */
   mediaType: "photo" | "video";
-  /** Optional path to thumbnail image (required for videos) */
+  /** Optional path to thumbnail image. If not provided for videos, the package will attempt to generate one automatically using expo-video-thumbnails (if installed). */
   thumbnailPath?: string;
   /** Optional MIME content type (e.g., 'image/jpeg', 'video/mp4') */
   contentType?: string;
@@ -48,6 +48,16 @@ export interface SignedUrlResponse {
   key: string;
   /** Multipart upload ID from S3 */
   uploadId: string;
+}
+
+/**
+ * Response from the backend containing a signed URL for simple upload.
+ */
+export interface SimpleSignedUrlResponse {
+  /** Signed URL to upload the file to */
+  url: string;
+  /** S3 key where the file will be stored */
+  key: string;
 }
 
 /**
@@ -218,18 +228,24 @@ export interface UnifiedUploadConfig {
   /** Maximum file size in MB (default: 4096) */
   maxFileSizeMB?: number;
   /**
-   * Function to get signed URLs for multipart upload chunks.
-   * Required for chunked uploads (files >= chunkThresholdBytes).
+   * Unified function to get signed URLs for both chunked and simple uploads.
+   * The library will call this with different parameters based on the upload type.
    *
-   * @param config - Configuration object with media type, total parts, content type, and extension
-   * @returns Promise resolving to signed URLs, S3 key, and upload ID
+   * @param config - Configuration object with upload type, file metadata, and optional chunk info
+   * @returns Promise resolving to signed URLs and metadata
    */
-  getSignedUrls: (config: {
+  getUploadUrl: (config: {
+    uploadType: "chunked" | "simple";
     mediaType: "photo" | "video";
-    totalParts: number;
     contentType?: string;
     extension?: string;
-  }) => Promise<SignedUrlResponse>;
+    fileName?: string;
+    // Only present for chunked uploads
+    totalParts?: number;
+  }) => Promise<
+    | SignedUrlResponse // For chunked uploads
+    | SimpleSignedUrlResponse // For simple uploads
+  >;
   /**
    * Function to mark a multipart upload as complete.
    * Required for chunked uploads (files >= chunkThresholdBytes).
@@ -242,18 +258,6 @@ export interface UnifiedUploadConfig {
     key: string;
     uploadId: string;
   }) => Promise<any>;
-  /**
-   * Function to get a signed URL for simple uploads.
-   * Required for simple uploads (files < chunkThresholdBytes).
-   *
-   * @param config - Configuration object with content type, extension, and optional file name
-   * @returns Promise resolving to signed URL and S3 key
-   */
-  getSimpleUploadUrl: (config: {
-    contentType?: string;
-    extension?: string;
-    fileName?: string;
-  }) => Promise<{ url: string; key: string }>;
   /**
    * Optional function to get a signed URL for thumbnail upload.
    * Required for video uploads.

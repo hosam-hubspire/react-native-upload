@@ -133,21 +133,22 @@ The server will start on `http://localhost:3000`
 
 ## API Endpoints
 
-### POST /api/upload/chunks
+### POST /api/upload/url
 
-Get signed URLs for multipart upload chunks.
+Unified endpoint to get signed URLs for both chunked and simple uploads.
 
 **Request:**
 ```json
 {
+  "uploadType": "chunked" | "simple",
   "mediaType": "photo" | "video",
-  "totalParts": 5,
   "contentType": "image/jpeg" | "video/mp4",
-  "extension": "jpg" | "mp4"
+  "extension": "jpg" | "mp4",
+  "totalParts": 5  // Only required when uploadType is "chunked"
 }
 ```
 
-**Response:**
+**Response for chunked uploads:**
 ```json
 {
   "urls": ["https://s3.amazonaws.com/...", ...],
@@ -156,9 +157,17 @@ Get signed URLs for multipart upload chunks.
 }
 ```
 
+**Response for simple uploads:**
+```json
+{
+  "url": "https://s3.amazonaws.com/...",
+  "key": "uploads/photo/1234567890-abc123.jpg"
+}
+```
+
 ### POST /api/upload/complete
 
-Complete a multipart upload.
+Complete a multipart upload (required for chunked uploads).
 
 **Request:**
 ```json
@@ -184,7 +193,7 @@ Complete a multipart upload.
 
 ### POST /api/upload/thumbnail
 
-Get signed URL for thumbnail upload.
+Get signed URL for thumbnail upload (optional, for videos).
 
 **Request:**
 ```json
@@ -199,27 +208,6 @@ Get signed URL for thumbnail upload.
 {
   "url": "https://s3.amazonaws.com/...",
   "key": "thumbnails/1234567890-abc123.jpg"
-}
-```
-
-### POST /api/upload/simple
-
-Get signed URL for simple (non-chunked) upload.
-
-**Request:**
-```json
-{
-  "contentType": "image/jpeg",
-  "extension": "jpg",
-  "fileName": "optional-custom-name.jpg"
-}
-```
-
-**Response:**
-```json
-{
-  "url": "https://s3.amazonaws.com/...",
-  "key": "uploads/simple/1234567890-abc123.jpg"
 }
 ```
 
@@ -324,12 +312,23 @@ Your AWS IAM user/role needs the following permissions:
 You can test the API using curl:
 
 ```bash
-# Get chunked upload URLs
-curl -X POST http://localhost:3000/api/upload/chunks \
+# Get signed URL for chunked upload
+curl -X POST http://localhost:3000/api/upload/url \
   -H "Content-Type: application/json" \
   -d '{
+    "uploadType": "chunked",
     "mediaType": "photo",
     "totalParts": 3,
+    "contentType": "image/jpeg",
+    "extension": "jpg"
+  }'
+
+# Get signed URL for simple upload
+curl -X POST http://localhost:3000/api/upload/url \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uploadType": "simple",
+    "mediaType": "photo",
     "contentType": "image/jpeg",
     "extension": "jpg"
   }'

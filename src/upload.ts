@@ -8,8 +8,11 @@ import {
   UploadProgress,
   SimpleUploadConfig,
   UnifiedUploadConfig,
+  SignedUrlResponse,
+  SimpleSignedUrlResponse,
 } from "./types";
 import { mapConcurrent } from "./concurrent";
+import { generateVideoThumbnail } from "./thumbnail";
 
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_CONCURRENT_FILE_UPLOAD_LIMIT = 3;
@@ -135,6 +138,7 @@ async function readAndUploadFileAsChunks({
   let uploadedPartsCount = 0;
 
   try {
+    // UploadConfig still uses getSignedUrls (internal type)
     const { urls, key, uploadId } = await config.getSignedUrls({
       mediaType,
       totalParts,
@@ -249,40 +253,41 @@ async function readAndUploadFileAsChunks({
     let width = 0;
 
     if (mediaType === "video") {
-      if (!config.getThumbnailSignedUrl) {
-        throw new Error("getThumbnailSignedUrl is required for video uploads");
-      }
-
-      if (!thumbnailPath) {
-        throw new Error("thumbnailPath is required for video uploads");
-      }
-
-      try {
-        const { thumbnailKey: thumbKey } = await uploadThumbnail({
-          thumbnailPath,
-          getThumbnailSignedUrl: config.getThumbnailSignedUrl,
-        });
-
-        if (config.getImageSize) {
-          const { height: calculatedHeight, width: calculatedWidth } =
-            await config.getImageSize(thumbnailPath);
-          height = calculatedHeight;
-          width = calculatedWidth;
+      // Auto-generate thumbnail if not provided
+      let finalThumbnailPath = thumbnailPath;
+      if (!finalThumbnailPath) {
+        const generatedThumbnail = await generateVideoThumbnail(filePath);
+        if (generatedThumbnail) {
+          finalThumbnailPath = generatedThumbnail;
+        } else {
+          // expo-video-thumbnails is not installed, skip thumbnail upload
+          console.warn(
+            `expo-video-thumbnails is not installed. Skipping thumbnail generation for video at ${filePath}. Install expo-video-thumbnails to enable automatic thumbnail generation.`
+          );
         }
+      }
 
-        thumbnailKey = thumbKey;
-      } catch (thumbnailError: any) {
-        return [
-          {
-            fileIndex,
-            eTag: null,
-            partNumber: 0,
-            mediaType,
-            uploadFailed: true,
-            reason: thumbnailError?.message || String(thumbnailError),
-            keyAndUploadId,
-          },
-        ];
+      // Only upload thumbnail if we have one and getThumbnailSignedUrl is provided
+      if (finalThumbnailPath && config.getThumbnailSignedUrl) {
+        try {
+          const { thumbnailKey: thumbKey } = await uploadThumbnail({
+            thumbnailPath: finalThumbnailPath,
+            getThumbnailSignedUrl: config.getThumbnailSignedUrl,
+          });
+
+          if (config.getImageSize) {
+            const { height: calculatedHeight, width: calculatedWidth } =
+              await config.getImageSize(finalThumbnailPath);
+            height = calculatedHeight;
+            width = calculatedWidth;
+          }
+
+          thumbnailKey = thumbKey;
+        } catch (thumbnailError: any) {
+          // Don't fail the entire upload if thumbnail fails
+          console.error("Failed to upload thumbnail:", thumbnailError);
+          // Continue without thumbnail
+        }
       }
     } else {
       if (config.getImageSize) {
@@ -344,9 +349,13 @@ async function readAndUploadFileAsChunks({
  *     extension: 'jpg'
  *   },
  *   {
- *     getSignedUrls: async ({ mediaType, totalParts }) => {
+ *     getUploadUrl: async ({ uploadType, mediaType, contentType, extension, totalParts }) => {
  *       // Call your backend API
- *       const response = await fetch('/api/upload/chunks', { ... });
+ *       const response = await fetch('/api/upload/url', {
+ *         method: 'POST',
+ *         headers: { 'Content-Type': 'application/json' },
+ *         body: JSON.stringify({ uploadType, mediaType, contentType, extension, totalParts }),
+ *       });
  *       return response.json();
  *     },
  *     markUploadComplete: async ({ eTags, key, uploadId }) => {
@@ -761,17 +770,15 @@ async function uploadMultipleSimpleFiles(
  *   ],
  *   {
  *     chunkThresholdBytes: 5 * 1024 * 1024, // 5MB threshold
- *     getSignedUrls: async ({ mediaType, totalParts }) => {
- *       const response = await fetch('/api/upload/chunks', { ... });
+ *     getUploadUrl: async ({ uploadType, mediaType, contentType, extension, totalParts }) => {
+ *       // Single unified endpoint (recommended)
+ *       const response = await fetch('/api/upload/url', {
+ *         method: 'POST',
+ *         headers: { 'Content-Type': 'application/json' },
+ *         body: JSON.stringify({ uploadType, mediaType, contentType, extension, totalParts }),
+ *       });
  *       return response.json();
- *     },
- *     markUploadComplete: async ({ eTags, key, uploadId }) => {
- *       const response = await fetch('/api/upload/complete', { ... });
- *       return response.json();
- *     },
- *     getSimpleUploadUrl: async ({ contentType, extension }) => {
- *       const response = await fetch('/api/upload/simple', { ... });
- *       return response.json();
+ *       // Returns { urls, key, uploadId } for chunked or { url, key } for simple
  *     },
  *     onProgress: (fileIndex, progress) => {
  *       console.log(`File ${fileIndex}: ${progress.percentComplete}%`);
@@ -811,7 +818,19 @@ export async function uploadFiles(
       concurrentFileUploadLimit: config.concurrentFileUploadLimit,
       concurrentChunkUploadLimit: config.concurrentChunkUploadLimit,
       maxFileSizeMB: config.maxFileSizeMB,
-      getSignedUrls: config.getSignedUrls,
+      getSignedUrls: async (params) => {
+        const response = await config.getUploadUrl({
+          uploadType: "chunked",
+          mediaType: params.mediaType,
+          totalParts: params.totalParts,
+          contentType: params.contentType,
+          extension: params.extension,
+        });
+        if (!("urls" in response) || !("uploadId" in response)) {
+          throw new Error("Invalid response for chunked upload");
+        }
+        return response;
+      },
       markUploadComplete: config.markUploadComplete,
       getThumbnailSignedUrl: config.getThumbnailSignedUrl,
       onProgress: config.onProgress,
@@ -833,10 +852,19 @@ export async function uploadFiles(
     // Get signed URLs and keys for all simple files
     const simpleFileData = await Promise.all(
       simpleFiles.map(async (file) => {
-        const { url, key } = await config.getSimpleUploadUrl({
+        const response = await config.getUploadUrl({
+          uploadType: "simple",
+          mediaType: file.mediaType,
           contentType: file.contentType,
           extension: file.extension,
         });
+
+        // Type guard to ensure we have simple upload response
+        if (!("url" in response)) {
+          throw new Error("Invalid response for simple upload");
+        }
+
+        const { url, key } = response;
 
         return {
           file,
@@ -895,24 +923,42 @@ export async function uploadFiles(
         }
 
         // Upload thumbnail for videos
-        if (file.mediaType === "video" && file.thumbnailPath && !uploadFailed) {
-          if (config.getThumbnailSignedUrl) {
+        if (file.mediaType === "video" && !uploadFailed) {
+          // Auto-generate thumbnail if not provided
+          let finalThumbnailPath = file.thumbnailPath;
+          if (!finalThumbnailPath) {
+            const generatedThumbnail = await generateVideoThumbnail(
+              file.filePath
+            );
+            if (generatedThumbnail) {
+              finalThumbnailPath = generatedThumbnail;
+            } else {
+              // expo-video-thumbnails is not installed, skip thumbnail upload
+              console.warn(
+                `expo-video-thumbnails is not installed. Skipping thumbnail generation for video at ${file.filePath}. Install expo-video-thumbnails to enable automatic thumbnail generation.`
+              );
+            }
+          }
+
+          // Only upload thumbnail if we have one and getThumbnailSignedUrl is provided
+          if (finalThumbnailPath && config.getThumbnailSignedUrl) {
             try {
-              const { url, key } = await config.getThumbnailSignedUrl({
+              const thumbnailResponse = await config.getThumbnailSignedUrl({
                 contentType: "image/jpeg",
                 extension: "jpg",
               });
-              thumbnailKey = key;
+              thumbnailKey = thumbnailResponse.key;
 
-              const thumbnailFile = new File(file.thumbnailPath!);
+              const thumbnailFile = new File(finalThumbnailPath);
               const thumbnailBytes = await thumbnailFile.bytes();
-              await fetch(url, {
+              await fetch(thumbnailResponse.url, {
                 method: "PUT",
                 headers: { "Content-Type": "image/jpeg" },
                 body: thumbnailBytes,
               });
             } catch (error) {
               console.error("Failed to upload thumbnail:", error);
+              // Continue without thumbnail
             }
           }
         }

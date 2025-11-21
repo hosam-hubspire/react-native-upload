@@ -39,80 +39,118 @@ const s3Client = new S3Client({
 const BUCKET_NAME = process.env.S3_BUCKET_NAME || "your-bucket-name";
 
 /**
- * POST /api/upload/chunks
- * Get signed URLs for multipart upload chunks
+ * POST /api/upload/url
+ * Unified endpoint to get signed URLs for both chunked and simple uploads
  *
  * Request body:
  * {
+ *   "uploadType": "chunked" | "simple",
  *   "mediaType": "photo" | "video",
- *   "totalParts": number,
  *   "contentType": "image/jpeg" | "video/mp4",
- *   "extension": "jpg" | "mp4"
+ *   "extension": "jpg" | "mp4",
+ *   "totalParts": number (only for chunked uploads)
  * }
  *
- * Response:
+ * Response for chunked:
  * {
  *   "urls": string[],
  *   "key": string,
  *   "uploadId": string
  * }
+ *
+ * Response for simple:
+ * {
+ *   "url": string,
+ *   "key": string
+ * }
  */
-app.post("/api/upload/chunks", async (req, res) => {
+app.post("/api/upload/url", async (req, res) => {
   try {
-    const { mediaType, totalParts, contentType, extension } = req.body;
+    const { uploadType, mediaType, contentType, extension, totalParts } =
+      req.body;
 
-    if (!mediaType || !totalParts || !contentType || !extension) {
+    if (!uploadType || !mediaType || !contentType || !extension) {
       return res.status(400).json({
         error:
-          "Missing required fields: mediaType, totalParts, contentType, extension",
+          "Missing required fields: uploadType, mediaType, contentType, extension",
       });
     }
 
-    // Generate a unique key for the file
-    const timestamp = Date.now();
-    const randomId = Math.random().toString(36).substring(2, 15);
-    const key = `uploads/${mediaType}/${timestamp}-${randomId}.${extension}`;
+    if (uploadType === "chunked") {
+      // Handle chunked upload
+      if (!totalParts) {
+        return res.status(400).json({
+          error: "totalParts is required for chunked uploads",
+        });
+      }
 
-    // Create multipart upload
-    const createMultipartUploadCommand = new CreateMultipartUploadCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-      ContentType: contentType,
-      // Add metadata if needed
-      Metadata: {
-        mediaType: mediaType,
-        uploadedAt: new Date().toISOString(),
-      },
-    });
+      // Generate a unique key for the file
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2, 15);
+      const key = `uploads/${mediaType}/${timestamp}-${randomId}.${extension}`;
 
-    const { UploadId } = await s3Client.send(createMultipartUploadCommand);
-
-    // Generate signed URLs for each part
-    const urls = [];
-    for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
-      const uploadPartCommand = new UploadPartCommand({
+      // Create multipart upload
+      const createMultipartUploadCommand = new CreateMultipartUploadCommand({
         Bucket: BUCKET_NAME,
         Key: key,
-        UploadId: UploadId,
-        PartNumber: partNumber,
+        ContentType: contentType,
+        Metadata: {
+          mediaType: mediaType,
+          uploadedAt: new Date().toISOString(),
+        },
       });
 
-      const signedUrl = await getSignedUrl(s3Client, uploadPartCommand, {
+      const { UploadId } = await s3Client.send(createMultipartUploadCommand);
+
+      // Generate signed URLs for each part
+      const urls = [];
+      for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+        const uploadPartCommand = new UploadPartCommand({
+          Bucket: BUCKET_NAME,
+          Key: key,
+          UploadId: UploadId,
+          PartNumber: partNumber,
+        });
+
+        const signedUrl = await getSignedUrl(s3Client, uploadPartCommand, {
+          expiresIn: 3600, // URL expires in 1 hour
+        });
+
+        urls.push(signedUrl);
+      }
+
+      res.json({
+        urls,
+        key,
+        uploadId: UploadId,
+      });
+    } else {
+      // Handle simple upload
+      // Generate a unique key for the file
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2, 15);
+      const key = `uploads/${mediaType}/${timestamp}-${randomId}.${extension}`;
+
+      const { PutObjectCommand } = require("@aws-sdk/client-s3");
+      const putObjectCommand = new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+        ContentType: contentType,
+      });
+
+      const signedUrl = await getSignedUrl(s3Client, putObjectCommand, {
         expiresIn: 3600, // URL expires in 1 hour
       });
 
-      urls.push(signedUrl);
+      res.json({
+        url: signedUrl,
+        key: key,
+      });
     }
-
-    res.json({
-      urls,
-      key,
-      uploadId: UploadId,
-    });
   } catch (error) {
-    console.error("Error creating multipart upload:", error);
+    console.error("Error generating upload URL:", error);
     res.status(500).json({
-      error: "Failed to create multipart upload",
+      error: "Failed to generate upload URL",
       message: error.message,
     });
   }
@@ -238,64 +276,6 @@ app.post("/api/upload/thumbnail", async (req, res) => {
 });
 
 /**
- * POST /api/upload/simple
- * Get signed URL for simple (non-chunked) upload
- *
- * Request body:
- * {
- *   "contentType": "image/jpeg",
- *   "extension": "jpg",
- *   "fileName": string (optional)
- * }
- *
- * Response:
- * {
- *   "url": string,
- *   "key": string
- * }
- */
-app.post("/api/upload/simple", async (req, res) => {
-  try {
-    const { contentType, extension, fileName } = req.body;
-
-    if (!contentType || !extension) {
-      return res.status(400).json({
-        error: "Missing required fields: contentType, extension",
-      });
-    }
-
-    // Generate a unique key for the file
-    const timestamp = Date.now();
-    const randomId = Math.random().toString(36).substring(2, 15);
-    const key = fileName
-      ? `uploads/simple/${fileName}`
-      : `uploads/simple/${timestamp}-${randomId}.${extension}`;
-
-    const { PutObjectCommand } = require("@aws-sdk/client-s3");
-    const putObjectCommand = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-      ContentType: contentType,
-    });
-
-    const signedUrl = await getSignedUrl(s3Client, putObjectCommand, {
-      expiresIn: 3600, // URL expires in 1 hour
-    });
-
-    res.json({
-      url: signedUrl,
-      key: key,
-    });
-  } catch (error) {
-    console.error("Error generating simple upload URL:", error);
-    res.status(500).json({
-      error: "Failed to generate upload URL",
-      message: error.message,
-    });
-  }
-});
-
-/**
  * GET /api/files
  * List all uploaded files in the bucket
  *
@@ -375,7 +355,7 @@ app.get("/api/files/:key(*)", async (req, res) => {
 /**
  * DELETE /api/files
  * Delete all files from LocalStack S3 bucket
- * 
+ *
  * Response:
  * {
  *   "message": string,
@@ -389,7 +369,8 @@ app.delete("/api/files", async (req, res) => {
     if (!USE_LOCALSTACK) {
       return res.status(403).json({
         error: "This endpoint is only available for LocalStack",
-        message: "For safety, file deletion is only allowed in local development",
+        message:
+          "For safety, file deletion is only allowed in local development",
       });
     }
 
@@ -470,10 +451,15 @@ const server = app.listen(PORT, () => {
   }
   console.log(`Bucket: ${BUCKET_NAME}`);
   console.log(`\nAPI endpoints:`);
-  console.log(`  POST http://localhost:${PORT}/api/upload/chunks`);
-  console.log(`  POST http://localhost:${PORT}/api/upload/complete`);
-  console.log(`  POST http://localhost:${PORT}/api/upload/thumbnail`);
-  console.log(`  POST http://localhost:${PORT}/api/upload/simple`);
+  console.log(
+    `  POST http://localhost:${PORT}/api/upload/url - Unified endpoint for chunked and simple uploads`
+  );
+  console.log(
+    `  POST http://localhost:${PORT}/api/upload/complete - Complete multipart upload`
+  );
+  console.log(
+    `  POST http://localhost:${PORT}/api/upload/thumbnail - Get thumbnail upload URL`
+  );
   console.log(
     `  GET  http://localhost:${PORT}/api/files - List all uploaded files`
   );
@@ -481,7 +467,7 @@ const server = app.listen(PORT, () => {
     `  GET  http://localhost:${PORT}/api/files/:key - Get download URL for a file`
   );
   console.log(
-    `  DELETE http://localhost:${PORT}/api/files - Clear all files (LocalStack only)`
+    `  DELETE  http://localhost:${PORT}/api/files - Clear all uploaded files (LocalStack only)`
   );
 });
 

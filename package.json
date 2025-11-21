@@ -20,8 +20,12 @@
   "author": "",
   "license": "MIT",
   "peerDependencies": {
-    "expo-file-system": "*",
-    "react-native": "*"
+    "expo-file-system": "*"
+  },
+  "peerDependenciesMeta": {
+    "expo-video-thumbnails": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

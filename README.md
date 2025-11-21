@@ -5,18 +5,13 @@ A generalized React Native package for file uploads with automatic chunking. Thi
 ## Features
 
 - ✅ **Automatic upload method selection** - Automatically uses chunked upload for large files and simple upload for smaller files
-- ✅ Chunked uploads for large files (configurable chunk size, up to 4GB)
-- ✅ Simple uploads for smaller files (with progress tracking)
-- ✅ Concurrent file and chunk uploads
+- ✅ Concurrent file and chunk uploads with progress tracking
 - ✅ Real-time progress tracking per file and overall progress
 - ✅ Support for photos and videos
 - ✅ Automatic video thumbnail generation using `expo-video-thumbnails`
-- ✅ Thumbnail upload support for videos
-- ✅ Always accepts an array of files (even for single file uploads)
 - ✅ TypeScript support with full type definitions
 - ✅ Expo compatible
 - ✅ Error handling with detailed failure reasons
-- ✅ LocalStack support for local development and testing
 
 ## Installation
 
@@ -43,7 +38,7 @@ yarn add expo-file-system react-native
 bun add expo-file-system react-native
 ```
 
-For video thumbnail generation (optional but recommended for videos):
+For automatic video thumbnail generation (optional - only needed if you plan to upload videos):
 
 ```bash
 npm install expo-video-thumbnails
@@ -53,6 +48,8 @@ yarn add expo-video-thumbnails
 bun add expo-video-thumbnails
 ```
 
+**Note:** The package will automatically generate thumbnails for videos if `expo-video-thumbnails` is installed. If not installed, video uploads will proceed without thumbnails.
+
 ## Usage
 
 The package provides a single unified `uploadFiles` function that automatically selects the best upload method based on file size. Files larger than the threshold use chunked multipart upload, while smaller files use simple upload.
@@ -60,7 +57,11 @@ The package provides a single unified `uploadFiles` function that automatically 
 ### Basic Example
 
 ```typescript
-import { uploadFiles, UnifiedUploadConfig, FileUploadConfig } from "react-native-chunk-upload";
+import {
+  uploadFiles,
+  UnifiedUploadConfig,
+  FileUploadConfig,
+} from "react-native-chunk-upload";
 
 // Configure your upload
 const uploadConfig: UnifiedUploadConfig = {
@@ -68,25 +69,28 @@ const uploadConfig: UnifiedUploadConfig = {
   // Files >= this size will use chunked upload, files < this size will use simple upload
   chunkThresholdBytes: 5 * 1024 * 1024, // 5MB
 
-  // Required: Function to get signed URLs for chunked uploads (files >= threshold)
-  getSignedUrls: async ({ mediaType, totalParts, contentType, extension }) => {
-    const response = await fetch("/api/upload/chunks", {
+  // Required: Unified function to get signed URLs for both chunked and simple uploads
+  getUploadUrl: async ({
+    uploadType,
+    mediaType,
+    contentType,
+    extension,
+    totalParts,
+  }) => {
+    const response = await fetch("/api/upload/url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        uploadType, // "chunked" or "simple"
         mediaType,
-        totalParts,
         contentType,
         extension,
+        totalParts, // Only used when uploadType is "chunked"
       }),
     });
-    if (!response.ok) throw new Error("Failed to get signed URLs");
-    const data = await response.json();
-    return {
-      urls: data.urls, // Array of signed URLs, one per chunk
-      key: data.key,
-      uploadId: data.uploadId,
-    };
+    if (!response.ok) throw new Error("Failed to get upload URL");
+    return response.json();
+    // Returns { urls, key, uploadId } for chunked or { url, key } for simple
   },
 
   // Required: Function to mark chunked upload as complete
@@ -98,18 +102,6 @@ const uploadConfig: UnifiedUploadConfig = {
     });
     if (!response.ok) throw new Error("Failed to complete upload");
     return response.json();
-  },
-
-  // Required: Function to get signed URL for simple uploads (files < threshold)
-  getSimpleUploadUrl: async ({ contentType, extension }) => {
-    const response = await fetch("/api/upload/simple", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contentType, extension }),
-    });
-    if (!response.ok) throw new Error("Failed to get simple upload URL");
-    const data = await response.json();
-    return { url: data.url, key: data.key };
   },
 
   // Optional: For video thumbnail uploads
@@ -179,7 +171,7 @@ const multipleFiles: FileUploadConfig[] = [
     filePath: "/path/to/large-video.mp4",
     fileSize: 1024 * 1024 * 50, // 50MB - will use chunked upload (>= 5MB threshold)
     mediaType: "video",
-    thumbnailPath: "/path/to/thumbnail.jpg", // Generated using expo-video-thumbnails
+    // thumbnailPath is optional - will be auto-generated if expo-video-thumbnails is installed
     contentType: "video/mp4",
     extension: "mp4",
   },
@@ -189,22 +181,12 @@ const uploadResults = await uploadFiles(multipleFiles, uploadConfig);
 console.log("Upload results:", uploadResults);
 ```
 
-### Video Thumbnail Generation
+### Automatic Video Thumbnail Generation
 
-The package supports automatic thumbnail generation for videos using `expo-video-thumbnails`:
+The package automatically generates thumbnails for videos if `expo-video-thumbnails` is installed. You don't need to provide `thumbnailPath` - it will be generated automatically:
 
 ```typescript
-import * as VideoThumbnails from "expo-video-thumbnails";
-
-async function generateVideoThumbnail(videoUri: string): Promise<string> {
-  const { uri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
-    time: 1000, // Get thumbnail at 1 second
-    quality: 0.8,
-  });
-  return uri;
-}
-
-// When selecting a video
+// Thumbnail will be auto-generated if expo-video-thumbnails is installed
 const videoFile: FileUploadConfig = {
   fileIndex: 0,
   filePath: videoUri,
@@ -212,8 +194,33 @@ const videoFile: FileUploadConfig = {
   mediaType: "video",
   contentType: "video/mp4",
   extension: "mp4",
-  thumbnailPath: await generateVideoThumbnail(videoUri), // Generate thumbnail
+  // thumbnailPath is optional - will be auto-generated if expo-video-thumbnails is installed
 };
+
+const results = await uploadFiles([videoFile], uploadConfig);
+```
+
+If you want to manually generate thumbnails or customize the generation, you can use the exported `generateVideoThumbnail` function:
+
+```typescript
+import { generateVideoThumbnail } from "react-native-chunk-upload";
+
+// Manually generate thumbnail with custom options
+const thumbnailPath = await generateVideoThumbnail(videoUri, {
+  time: 2000, // Get thumbnail at 2 seconds
+  quality: 0.9, // Higher quality
+});
+
+if (thumbnailPath) {
+  // Use the generated thumbnail
+  const videoFile: FileUploadConfig = {
+    fileIndex: 0,
+    filePath: videoUri,
+    fileSize: videoSize,
+    mediaType: "video",
+    thumbnailPath, // Use manually generated thumbnail
+  };
+}
 ```
 
 ## API Reference
@@ -225,12 +232,14 @@ const videoFile: FileUploadConfig = {
 Uploads one or more files, automatically selecting chunked or simple upload based on file size.
 
 **Parameters:**
+
 - `files` (required): Array of `FileUploadConfig` objects. Always pass an array, even for a single file.
 - `config` (required): `UnifiedUploadConfig` object with all required callbacks and optional settings.
 
 **Returns:** `Promise<UploadFileResult[]>` - Array of upload results, one per file, in the same order as input.
 
 **Behavior:**
+
 - Files with `fileSize >= chunkThresholdBytes` use chunked multipart upload
 - Files with `fileSize < chunkThresholdBytes` use simple upload
 - All files are uploaded concurrently up to `concurrentFileUploadLimit`
@@ -242,10 +251,9 @@ Uploads one or more files, automatically selecting chunked or simple upload base
 
 Configuration object for unified uploads.
 
-- `chunkThresholdBytes` (optional): File size threshold in bytes. Files >= this size use chunked upload, files < this size use simple upload. Default: 5MB (5 * 1024 * 1024)
-- `getSignedUrls` (required): Function to get signed URLs for chunked uploads
+- `chunkThresholdBytes` (optional): File size threshold in bytes. Files >= this size use chunked upload, files < this size use simple upload. Default: 5MB (5 _ 1024 _ 1024)
+- `getUploadUrl` (required): Unified function to get signed URLs for both chunked and simple uploads. The library calls this with `uploadType: "chunked"` or `uploadType: "simple"` based on file size.
 - `markUploadComplete` (required): Function to complete chunked multipart uploads
-- `getSimpleUploadUrl` (required): Function to get signed URL for simple uploads
 - `getThumbnailSignedUrl` (optional): Function to get signed URL for video thumbnails
 - `getImageSize` (optional): Function to get image/video dimensions
 - `onProgress` (optional): Callback for per-file progress updates
@@ -292,70 +300,6 @@ Progress information for a file upload.
 - `uploadFailed`: Whether upload failed
 - `uploadCompleted`: Whether upload completed
 
-## Example: Integration with GraphQL
-
-```typescript
-import { ApolloClient } from "@apollo/client";
-import { uploadFiles, UnifiedUploadConfig } from "react-native-chunk-upload";
-import { GET_UPLOAD_CHUNK, MARK_UPLOAD_COMPLETE, GET_SIMPLE_UPLOAD } from "./graphql";
-
-const client = new ApolloClient({
-  /* ... */
-});
-
-const uploadConfig: UnifiedUploadConfig = {
-  chunkThresholdBytes: 5 * 1024 * 1024, // 5MB
-
-  getSignedUrls: async ({ mediaType, totalParts, contentType, extension }) => {
-    const query =
-      mediaType === "photo" ? GET_IMAGE_UPLOAD_CHUNK : GET_VIDEO_UPLOAD_CHUNK;
-
-    const res = await client.query({
-      query,
-      variables: {
-        payload: { contentType, extension, parts: totalParts },
-      },
-    });
-
-    const dataKey =
-      mediaType === "photo" ? "getImageUploadChunk" : "getVideoUploadChunk";
-
-    return {
-      urls: res.data[dataKey].urls,
-      key: res.data[dataKey].key,
-      uploadId: res.data[dataKey].uploadId,
-    };
-  },
-
-  markUploadComplete: async ({ eTags, key, uploadId }) => {
-    const res = await client.mutate({
-      mutation: MARK_UPLOAD_COMPLETE,
-      variables: { eTags, key, uploadId },
-    });
-    return res.data;
-  },
-
-  getSimpleUploadUrl: async ({ contentType, extension }) => {
-    const res = await client.query({
-      query: GET_SIMPLE_UPLOAD,
-      variables: { contentType, extension },
-    });
-    return {
-      url: res.data.getSimpleUpload.url,
-      key: res.data.getSimpleUpload.key,
-    };
-  },
-
-  onProgress: (fileIndex, progress) => {
-    // Update your state/store
-    updateFileProgress(fileIndex, progress);
-  },
-};
-
-const files = [/* ... */];
-const results = await uploadFiles(files, uploadConfig);
-```
-
 ## Example App
 
 An example React Native app demonstrating the package usage is available in the `example/` directory. The example includes:
@@ -382,10 +326,16 @@ See the [example README](./example/README.md) for detailed setup instructions.
 
 Your backend needs to provide the following endpoints:
 
-1. **POST /api/upload/chunks** - Get signed URLs for multipart upload chunks (for files >= threshold)
-2. **POST /api/upload/complete** - Complete multipart upload (for chunked uploads)
-3. **POST /api/upload/simple** - Get signed URL for simple upload (for files < threshold)
-4. **POST /api/upload/thumbnail** - Get signed URL for thumbnail upload (optional, for videos)
+**Required:**
+
+- **POST /api/upload/url** - Unified endpoint that handles both chunked and simple uploads. Receives `uploadType` parameter ("chunked" or "simple") and returns appropriate response:
+  - For `uploadType: "chunked"`: Returns `{ urls: string[], key: string, uploadId: string }`
+  - For `uploadType: "simple"`: Returns `{ url: string, key: string }`
+- **POST /api/upload/complete** - Complete multipart upload (required for chunked uploads)
+
+**Optional:**
+
+- **POST /api/upload/thumbnail** - Get signed URL for thumbnail upload (for videos)
 
 See the example backend in `example/backend/` for a complete implementation using AWS S3 and LocalStack.
 
