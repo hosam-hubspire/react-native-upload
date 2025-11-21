@@ -11,12 +11,9 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import {
-  uploadMultipleFiles,
-  uploadMultipleSimpleFiles,
-  uploadSimpleFile,
-  type UploadConfig,
-  type FileUploadConfig,
-  type SimpleUploadConfig,
+  uploadFiles,
+  UnifiedUploadConfig,
+  FileUploadConfig,
 } from "react-native-chunk-upload";
 
 // Configuration - Update this to match your backend URL
@@ -222,9 +219,11 @@ export default function Index() {
     }
   };
 
-  const uploadConfig: UploadConfig = {
+  const uploadConfig: UnifiedUploadConfig = {
+    chunkThresholdBytes: 5 * 1024 * 1024, // 5MB - files >= 5MB use chunked, < 5MB use simple
     getSignedUrls,
     markUploadComplete,
+    getSimpleUploadUrl,
     getThumbnailSignedUrl,
     chunkSize: 5 * 1024 * 1024, // 5MB chunks
     concurrentFileUploadLimit: 3,
@@ -245,31 +244,16 @@ export default function Index() {
           error: progress.uploadFailed ? "Upload failed" : undefined,
           reason: (progress as any).reason,
         });
-
-        // Calculate overall progress in real-time
-        const totalBytes = selectedFiles.reduce(
-          (sum, f) => sum + f.fileSize,
-          0
-        );
-        const totalUploadedBytes = Array.from(newMap.values()).reduce(
-          (sum, p) => sum + (p.uploadedBytes || 0),
-          0
-        );
-        const overallPercentage =
-          totalBytes > 0
-            ? Math.min((totalUploadedBytes / totalBytes) * 100, 100)
-            : 0;
-        setOverallProgress(overallPercentage);
-
         return newMap;
       });
     },
     onTotalProgress: (progress) => {
+      // Update overall progress across all files
       setOverallProgress(progress.overallPercentComplete);
     },
   };
 
-  const handleChunkedUpload = async () => {
+  const handleUpload = async () => {
     if (selectedFiles.length === 0) {
       Alert.alert("No files", "Please select files first");
       return;
@@ -281,155 +265,9 @@ export default function Index() {
     setUploadResults([]);
 
     try {
-      const results = await uploadMultipleFiles(selectedFiles, uploadConfig);
-      setUploadResults(results);
-
-      // Update progress with failure reasons from results
-      setUploadProgress((prev) => {
-        const newMap = new Map(prev);
-        results.forEach((result) => {
-          if (result.uploadFailed && result.reason) {
-            const existing = newMap.get(result.fileIndex);
-            if (existing) {
-              const reasonStr =
-                typeof result.reason === "string"
-                  ? result.reason
-                  : String(result.reason || "Upload failed");
-              newMap.set(result.fileIndex, {
-                ...existing,
-                status: "failed",
-                reason: reasonStr,
-                error: reasonStr,
-              });
-            }
-          }
-        });
-        return newMap;
-      });
-
-      const failed = results.filter((r) => r.uploadFailed);
-      if (failed.length > 0) {
-        Alert.alert(
-          "Upload completed with errors",
-          `${results.length - failed.length} succeeded, ${failed.length} failed`
-        );
-      } else {
-        Alert.alert(
-          "Success",
-          `All ${results.length} files uploaded successfully!`
-        );
-      }
-    } catch (error: any) {
-      Alert.alert("Upload error", error.message || "Failed to upload files");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleSimpleUpload = async () => {
-    if (selectedFiles.length === 0) {
-      Alert.alert("No files", "Please select files first");
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadProgress(new Map());
-    setOverallProgress(0);
-    setUploadResults([]);
-
-    try {
-      const totalSize = selectedFiles.reduce((sum, f) => sum + f.fileSize, 0);
-
-      // Upload thumbnails for videos first
-      const videoFiles = selectedFiles.filter(
-        (f) => f.mediaType === "video" && f.thumbnailPath
-      );
-
-      if (videoFiles.length > 0) {
-        await Promise.all(
-          videoFiles.map(async (file) => {
-            try {
-              const { url } = await getThumbnailSignedUrl({
-                contentType: "image/jpeg",
-                extension: "jpg",
-              });
-
-              await uploadSimpleFile({
-                signedUrl: url,
-                filePath: file.thumbnailPath!,
-              });
-            } catch (error) {
-              console.error(
-                `Failed to upload thumbnail for file ${file.fileIndex}:`,
-                error
-              );
-              // Continue with main file upload even if thumbnail fails
-            }
-          })
-        );
-      }
-
-      // Get signed URLs for all files and store keys
-      const fileUploadData = await Promise.all(
-        selectedFiles.map(async (file) => {
-          const { url, key } = await getSimpleUploadUrl({
-            contentType: file.contentType,
-            extension: file.extension,
-          });
-
-          return {
-            file,
-            signedUrl: url,
-            key,
-          };
-        })
-      );
-
-      const uploadConfigs: SimpleUploadConfig[] = fileUploadData.map(
-        (data) => ({
-          signedUrl: data.signedUrl,
-          filePath: data.file.filePath,
-          onProgress: (percentage: number) => {
-            setUploadProgress((prev) => {
-              const newMap = new Map(prev);
-              const uploadedBytes = (data.file.fileSize * percentage) / 100;
-              newMap.set(data.file.fileIndex, {
-                fileIndex: data.file.fileIndex,
-                percentComplete: percentage,
-                uploadedBytes,
-                totalBytes: data.file.fileSize,
-                status: percentage === 100 ? "completed" : "uploading",
-              });
-
-              // Calculate overall progress
-              const totalUploadedBytes = Array.from(newMap.values()).reduce(
-                (sum, p) => sum + p.uploadedBytes,
-                0
-              );
-              const overallPercentage = (totalUploadedBytes / totalSize) * 100;
-              setOverallProgress(overallPercentage);
-
-              return newMap;
-            });
-          },
-        })
-      );
-
-      // Upload all files concurrently
-      const uploadResults = await uploadMultipleSimpleFiles(uploadConfigs, 3);
-
-      // Map results to include fileIndex and key
-      const results = uploadResults.map((result, index) => ({
-        fileIndex: fileUploadData[index].file.fileIndex,
-        key: fileUploadData[index].key,
-        uploadFailed: result.status !== 200,
-        reason:
-          result.status !== 200
-            ? `Upload failed with status ${result.status}`
-            : undefined,
-        mediaType: fileUploadData[index].file.mediaType,
-      }));
-
+      // uploadFiles automatically switches between chunked and simple uploads
+      // based on file size (files >= chunkThresholdBytes use chunked, others use simple)
+      const results = await uploadFiles(selectedFiles, uploadConfig);
       setUploadResults(results);
 
       // Update progress with failure reasons from results
@@ -559,28 +397,18 @@ export default function Index() {
             ))}
           </View>
 
-          <View style={styles.buttonRow}>
-            <TouchableOpacity
-              style={[
-                styles.uploadButton,
-                isUploading && styles.uploadButtonDisabled,
-              ]}
-              onPress={handleChunkedUpload}
-              disabled={isUploading}
-            >
-              <Text style={styles.uploadButtonText}>Upload (Chunked)</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.uploadButton,
-                isUploading && styles.uploadButtonDisabled,
-              ]}
-              onPress={handleSimpleUpload}
-              disabled={isUploading}
-            >
-              <Text style={styles.uploadButtonText}>Upload (Simple)</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[
+              styles.uploadButton,
+              isUploading && styles.uploadButtonDisabled,
+            ]}
+            onPress={handleUpload}
+            disabled={isUploading}
+          >
+            <Text style={styles.uploadButtonText}>
+              {isUploading ? "Uploading..." : "Upload Files"}
+            </Text>
+          </TouchableOpacity>
 
           <TouchableOpacity style={styles.clearButton} onPress={clearFiles}>
             <Text style={styles.clearButtonText}>Clear All</Text>

@@ -7,6 +7,7 @@ import {
   UploadFileResult,
   UploadProgress,
   SimpleUploadConfig,
+  UnifiedUploadConfig,
 } from "./types";
 import { mapConcurrent } from "./concurrent";
 
@@ -14,7 +15,18 @@ const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_CONCURRENT_FILE_UPLOAD_LIMIT = 3;
 const DEFAULT_CONCURRENT_CHUNK_UPLOAD_LIMIT = 6;
 const DEFAULT_MAX_FILE_SIZE_MB = 4096;
+const DEFAULT_CHUNK_THRESHOLD_BYTES = 5 * 1024 * 1024; // 5MB
 
+/**
+ * Updates the upload progress for a chunked upload and calls the progress callback.
+ *
+ * @param fileIndex - Index of the file being uploaded
+ * @param totalParts - Total number of chunks/parts
+ * @param uploadedPartsCount - Number of chunks uploaded so far
+ * @param partSize - Size of each chunk in bytes
+ * @param fileSize - Total file size in bytes
+ * @param onProgress - Optional progress callback function
+ */
 function updateChunkUploadProgress(
   fileIndex: number,
   totalParts: number,
@@ -39,6 +51,15 @@ function updateChunkUploadProgress(
   }
 }
 
+/**
+ * Uploads a video thumbnail to S3 using a signed URL.
+ *
+ * @param params - Parameters for thumbnail upload
+ * @param params.thumbnailPath - Local path to the thumbnail image
+ * @param params.getThumbnailSignedUrl - Function to get signed URL for thumbnail
+ * @returns Promise resolving to the thumbnail S3 key
+ * @throws Error if thumbnail upload fails
+ */
 async function uploadThumbnail({
   thumbnailPath,
   getThumbnailSignedUrl,
@@ -78,6 +99,23 @@ async function uploadThumbnail({
   }
 }
 
+/**
+ * Reads a file in chunks and uploads each chunk to S3 using signed URLs.
+ * This is the core function that handles multipart uploads.
+ *
+ * @param params - File upload configuration and parameters
+ * @param params.fileIndex - Unique index for this file
+ * @param params.filePath - Local path to the file
+ * @param params.fileSize - File size in bytes
+ * @param params.partSize - Size of each chunk in bytes
+ * @param params.totalParts - Total number of chunks
+ * @param params.mediaType - Type of media: 'photo' or 'video'
+ * @param params.thumbnailPath - Optional thumbnail path (required for videos)
+ * @param params.contentType - Optional MIME content type
+ * @param params.extension - Optional file extension
+ * @param params.config - Upload configuration object
+ * @returns Promise resolving to an array of chunk upload results
+ */
 async function readAndUploadFileAsChunks({
   fileIndex,
   filePath,
@@ -110,6 +148,14 @@ async function readAndUploadFileAsChunks({
       throw new Error("Signed URLs not found");
     }
 
+    /**
+     * Reads a chunk from the file and uploads it to S3.
+     *
+     * @param position - Byte position to start reading from
+     * @param length - Number of bytes to read
+     * @param partNumber - Part number (1-indexed)
+     * @returns Promise resolving to ETag and part number, or error information
+     */
     const readAndUploadChunk = async (
       position: number,
       length: number,
@@ -193,7 +239,8 @@ async function readAndUploadFileAsChunks({
 
     const eTags = await mapConcurrent(
       uploadTasks,
-      (task) => readAndUploadChunk(task.position, task.length, task.partNumber),
+      (task: { position: number; length: number; partNumber: number }) =>
+        readAndUploadChunk(task.position, task.length, task.partNumber),
       concurrentChunkLimit
     );
 
@@ -277,7 +324,44 @@ async function readAndUploadFileAsChunks({
   }
 }
 
-export async function uploadFile(
+/**
+ * Uploads a single file using chunked multipart upload.
+ * This is the recommended method for large files (>5MB).
+ *
+ * @param fileConfig - Configuration for the file to upload
+ * @param config - Upload configuration with callbacks and settings
+ * @returns Promise resolving to the upload result with S3 key and metadata
+ *
+ * @example
+ * ```typescript
+ * const result = await uploadFile(
+ *   {
+ *     fileIndex: 0,
+ *     filePath: '/path/to/file.jpg',
+ *     fileSize: 10 * 1024 * 1024,
+ *     mediaType: 'photo',
+ *     contentType: 'image/jpeg',
+ *     extension: 'jpg'
+ *   },
+ *   {
+ *     getSignedUrls: async ({ mediaType, totalParts }) => {
+ *       // Call your backend API
+ *       const response = await fetch('/api/upload/chunks', { ... });
+ *       return response.json();
+ *     },
+ *     markUploadComplete: async ({ eTags, key, uploadId }) => {
+ *       // Call your backend API
+ *       const response = await fetch('/api/upload/complete', { ... });
+ *       return response.json();
+ *     },
+ *     onProgress: (fileIndex, progress) => {
+ *       console.log(`File ${fileIndex}: ${progress.percentComplete}%`);
+ *     }
+ *   }
+ * );
+ * ```
+ */
+async function uploadFile(
   fileConfig: FileUploadConfig,
   config: UploadConfig
 ): Promise<UploadFileResult> {
@@ -404,7 +488,41 @@ export async function uploadFile(
   }
 }
 
-export async function uploadMultipleFiles(
+/**
+ * Uploads multiple files concurrently using chunked multipart upload.
+ * Files are uploaded in parallel up to the configured concurrency limit.
+ *
+ * @param files - Array of file configurations to upload
+ * @param config - Upload configuration with callbacks and settings
+ * @returns Promise resolving to an array of upload results, one per file
+ *
+ * @example
+ * ```typescript
+ * const results = await uploadMultipleFiles(
+ *   [
+ *     {
+ *       fileIndex: 0,
+ *       filePath: '/path/to/image1.jpg',
+ *       fileSize: 5 * 1024 * 1024,
+ *       mediaType: 'photo',
+ *       contentType: 'image/jpeg',
+ *       extension: 'jpg'
+ *     },
+ *     {
+ *       fileIndex: 1,
+ *       filePath: '/path/to/video.mp4',
+ *       fileSize: 50 * 1024 * 1024,
+ *       mediaType: 'video',
+ *       thumbnailPath: '/path/to/thumbnail.jpg',
+ *       contentType: 'video/mp4',
+ *       extension: 'mp4'
+ *     }
+ *   ],
+ *   uploadConfig
+ * );
+ * ```
+ */
+async function uploadMultipleFiles(
   files: FileUploadConfig[],
   config: UploadConfig
 ): Promise<UploadFileResult[]> {
@@ -416,7 +534,7 @@ export async function uploadMultipleFiles(
   try {
     const uploadResponse = await mapConcurrent(
       files,
-      (file) => uploadFile(file, config),
+      (file: FileUploadConfig) => uploadFile(file, config),
       concurrentFileLimit
     );
 
@@ -428,11 +546,14 @@ export async function uploadMultipleFiles(
       const fileSizeMap = new Map(
         files.map((file) => [file.fileIndex, file.fileSize])
       );
-      const totalUploadedBytes = uploadedFiles.reduce((sum, file) => {
-        // This is a simplified calculation - in a real scenario you'd track bytes per file
-        const fileSize = fileSizeMap.get(file.fileIndex) || 0;
-        return sum + (file.uploadFailed ? 0 : fileSize);
-      }, 0);
+      const totalUploadedBytes = uploadedFiles.reduce(
+        (sum: number, file: UploadFileResult) => {
+          // This is a simplified calculation - in a real scenario you'd track bytes per file
+          const fileSize = fileSizeMap.get(file.fileIndex) || 0;
+          return sum + (file.uploadFailed ? 0 : fileSize);
+        },
+        0
+      );
 
       const overallPercentComplete =
         totalBytes > 0
@@ -451,7 +572,29 @@ export async function uploadMultipleFiles(
   }
 }
 
-export async function uploadSimpleFile(
+/**
+ * Uploads a single file using a simple (non-chunked) upload.
+ * This is suitable for smaller files that don't need multipart upload.
+ * Supports progress tracking via XMLHttpRequest when onProgress is provided.
+ *
+ * @param uploadConfig - Configuration for the simple upload
+ * @param uploadConfig.signedUrl - Presigned URL to upload the file to
+ * @param uploadConfig.filePath - Local path to the file
+ * @param uploadConfig.onProgress - Optional progress callback (0-100)
+ * @returns Promise resolving to the upload response with status, headers, and body
+ *
+ * @example
+ * ```typescript
+ * const result = await uploadSimpleFile({
+ *   signedUrl: 'https://s3.amazonaws.com/bucket/file.jpg?signature=...',
+ *   filePath: '/path/to/file.jpg',
+ *   onProgress: (percentage) => {
+ *     console.log(`Progress: ${percentage}%`);
+ *   }
+ * });
+ * ```
+ */
+async function uploadSimpleFile(
   uploadConfig: SimpleUploadConfig
 ): Promise<{ status: number; headers: Record<string, string>; body: string }> {
   const { signedUrl, filePath, onProgress } = uploadConfig;
@@ -545,7 +688,34 @@ export async function uploadSimpleFile(
   }
 }
 
-export async function uploadMultipleSimpleFiles(
+/**
+ * Uploads multiple files concurrently using simple (non-chunked) uploads.
+ * Files are uploaded in parallel up to the specified concurrency limit.
+ *
+ * @param files - Array of simple upload configurations
+ * @param concurrency - Maximum number of concurrent uploads (default: 6)
+ * @returns Promise resolving to an array of upload responses
+ *
+ * @example
+ * ```typescript
+ * const results = await uploadMultipleSimpleFiles(
+ *   [
+ *     {
+ *       signedUrl: 'https://s3.amazonaws.com/bucket/file1.jpg?signature=...',
+ *       filePath: '/path/to/file1.jpg',
+ *       onProgress: (percentage) => console.log(`File 1: ${percentage}%`)
+ *     },
+ *     {
+ *       signedUrl: 'https://s3.amazonaws.com/bucket/file2.jpg?signature=...',
+ *       filePath: '/path/to/file2.jpg',
+ *       onProgress: (percentage) => console.log(`File 2: ${percentage}%`)
+ *     }
+ *   ],
+ *   3 // Upload up to 3 files at once
+ * );
+ * ```
+ */
+async function uploadMultipleSimpleFiles(
   files: SimpleUploadConfig[],
   concurrency: number = DEFAULT_CONCURRENT_CHUNK_UPLOAD_LIMIT
 ): Promise<
@@ -554,7 +724,7 @@ export async function uploadMultipleSimpleFiles(
   try {
     const uploadTasks = await mapConcurrent(
       files,
-      (file) => uploadSimpleFile(file),
+      (file: SimpleUploadConfig) => uploadSimpleFile(file),
       concurrency
     );
 
@@ -562,4 +732,242 @@ export async function uploadMultipleSimpleFiles(
   } catch (error: any) {
     throw new Error(`${error?.message || String(error)}`);
   }
+}
+
+/**
+ * Unified upload function that automatically switches between chunked and simple uploads
+ * based on file size. Always accepts an array of files, even if only one file is provided.
+ *
+ * Files with size >= chunkThresholdBytes will use chunked multipart upload.
+ * Files with size < chunkThresholdBytes will use simple upload.
+ *
+ * @param files - Array of file configurations to upload (always an array, even for single files)
+ * @param config - Unified upload configuration with all required callbacks
+ * @returns Promise resolving to an array of upload results, one per file, in the same order as input
+ *
+ * @example
+ * ```typescript
+ * // Upload a single file (still pass as array)
+ * const results = await uploadFiles(
+ *   [
+ *     {
+ *       fileIndex: 0,
+ *       filePath: '/path/to/file.jpg',
+ *       fileSize: 10 * 1024 * 1024, // 10MB - will use chunked upload
+ *       mediaType: 'photo',
+ *       contentType: 'image/jpeg',
+ *       extension: 'jpg'
+ *     }
+ *   ],
+ *   {
+ *     chunkThresholdBytes: 5 * 1024 * 1024, // 5MB threshold
+ *     getSignedUrls: async ({ mediaType, totalParts }) => {
+ *       const response = await fetch('/api/upload/chunks', { ... });
+ *       return response.json();
+ *     },
+ *     markUploadComplete: async ({ eTags, key, uploadId }) => {
+ *       const response = await fetch('/api/upload/complete', { ... });
+ *       return response.json();
+ *     },
+ *     getSimpleUploadUrl: async ({ contentType, extension }) => {
+ *       const response = await fetch('/api/upload/simple', { ... });
+ *       return response.json();
+ *     },
+ *     onProgress: (fileIndex, progress) => {
+ *       console.log(`File ${fileIndex}: ${progress.percentComplete}%`);
+ *     }
+ *   }
+ * );
+ * ```
+ */
+export async function uploadFiles(
+  files: FileUploadConfig[],
+  config: UnifiedUploadConfig
+): Promise<UploadFileResult[]> {
+  if (!files.length) return [];
+
+  const chunkThreshold =
+    config.chunkThresholdBytes ?? DEFAULT_CHUNK_THRESHOLD_BYTES;
+
+  // Separate files into chunked and simple upload groups
+  const chunkedFiles: FileUploadConfig[] = [];
+  const simpleFiles: FileUploadConfig[] = [];
+
+  files.forEach((file) => {
+    if (file.fileSize >= chunkThreshold) {
+      chunkedFiles.push(file);
+    } else {
+      simpleFiles.push(file);
+    }
+  });
+
+  const results: UploadFileResult[] = [];
+  const resultMap = new Map<number, UploadFileResult>();
+
+  // Upload chunked files
+  if (chunkedFiles.length > 0) {
+    const chunkedConfig: UploadConfig = {
+      chunkSize: config.chunkSize,
+      concurrentFileUploadLimit: config.concurrentFileUploadLimit,
+      concurrentChunkUploadLimit: config.concurrentChunkUploadLimit,
+      maxFileSizeMB: config.maxFileSizeMB,
+      getSignedUrls: config.getSignedUrls,
+      markUploadComplete: config.markUploadComplete,
+      getThumbnailSignedUrl: config.getThumbnailSignedUrl,
+      onProgress: config.onProgress,
+      onTotalProgress: config.onTotalProgress,
+      getImageSize: config.getImageSize,
+    };
+
+    const chunkedResults = await uploadMultipleFiles(
+      chunkedFiles,
+      chunkedConfig
+    );
+    chunkedResults.forEach((result) => {
+      resultMap.set(result.fileIndex, result);
+    });
+  }
+
+  // Upload simple files
+  if (simpleFiles.length > 0) {
+    // Get signed URLs and keys for all simple files
+    const simpleFileData = await Promise.all(
+      simpleFiles.map(async (file) => {
+        const { url, key } = await config.getSimpleUploadUrl({
+          contentType: file.contentType,
+          extension: file.extension,
+        });
+
+        return {
+          file,
+          signedUrl: url,
+          key,
+        };
+      })
+    );
+
+    const simpleUploadConfigs: SimpleUploadConfig[] = simpleFileData.map(
+      (data) => ({
+        signedUrl: data.signedUrl,
+        filePath: data.file.filePath,
+        onProgress: config.onProgress
+          ? (percentage: number) => {
+              const progress: UploadProgress = {
+                percentComplete: percentage,
+                uploadedBytes: (data.file.fileSize * percentage) / 100,
+                totalBytes: data.file.fileSize,
+                uploadCompleted: percentage === 100,
+              };
+              config.onProgress!(data.file.fileIndex, progress);
+            }
+          : undefined,
+      })
+    );
+
+    const concurrentLimit =
+      config.concurrentFileUploadLimit || DEFAULT_CONCURRENT_FILE_UPLOAD_LIMIT;
+
+    const simpleUploadResults = await uploadMultipleSimpleFiles(
+      simpleUploadConfigs,
+      concurrentLimit
+    );
+
+    // Convert simple upload results to UploadFileResult format
+    await Promise.all(
+      simpleFileData.map(async (data, index) => {
+        const file = data.file;
+        const uploadResult = simpleUploadResults[index];
+        const uploadFailed = uploadResult.status !== 200;
+
+        let height = 0;
+        let width = 0;
+        let thumbnailKey: string | undefined;
+
+        // Get image size if callback provided
+        if (config.getImageSize && !uploadFailed) {
+          try {
+            const size = await config.getImageSize(file.filePath);
+            height = size.height;
+            width = size.width;
+          } catch (error) {
+            console.error("Failed to get image size:", error);
+          }
+        }
+
+        // Upload thumbnail for videos
+        if (file.mediaType === "video" && file.thumbnailPath && !uploadFailed) {
+          if (config.getThumbnailSignedUrl) {
+            try {
+              const { url, key } = await config.getThumbnailSignedUrl({
+                contentType: "image/jpeg",
+                extension: "jpg",
+              });
+              thumbnailKey = key;
+
+              const thumbnailFile = new File(file.thumbnailPath!);
+              const thumbnailBytes = await thumbnailFile.bytes();
+              await fetch(url, {
+                method: "PUT",
+                headers: { "Content-Type": "image/jpeg" },
+                body: thumbnailBytes,
+              });
+            } catch (error) {
+              console.error("Failed to upload thumbnail:", error);
+            }
+          }
+        }
+
+        resultMap.set(file.fileIndex, {
+          fileIndex: file.fileIndex,
+          mediaType: file.mediaType,
+          key: data.key,
+          height,
+          width,
+          thumbnailKey,
+          uploadFailed,
+          reason: uploadFailed
+            ? `Upload failed with status ${uploadResult.status}`
+            : undefined,
+        });
+      })
+    );
+  }
+
+  // Return results in the same order as input files
+  files.forEach((file) => {
+    const result = resultMap.get(file.fileIndex);
+    if (result) {
+      results.push(result);
+    } else {
+      // Fallback if result not found
+      results.push({
+        fileIndex: file.fileIndex,
+        mediaType: file.mediaType,
+        uploadFailed: true,
+        reason: "Upload result not found",
+      });
+    }
+  });
+
+  // Calculate overall progress if callback provided
+  if (config.onTotalProgress) {
+    const totalBytes = files.reduce((sum, file) => sum + file.fileSize, 0);
+    const totalUploadedBytes = results.reduce((sum, result) => {
+      const file = files.find((f) => f.fileIndex === result.fileIndex);
+      if (!file) return sum;
+      return sum + (result.uploadFailed ? 0 : file.fileSize);
+    }, 0);
+
+    const overallPercentComplete =
+      totalBytes > 0
+        ? Math.min(Math.ceil((totalUploadedBytes / totalBytes) * 100), 100)
+        : 0;
+
+    config.onTotalProgress({
+      overallPercentComplete,
+      totalUploadedBytes,
+    });
+  }
+
+  return results;
 }

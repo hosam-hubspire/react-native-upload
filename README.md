@@ -1,17 +1,18 @@
 # react-native-chunk-upload
 
-A generalized React Native package for chunked file uploads with progress tracking. This package handles multipart uploads for large files, supports concurrent uploads, and provides detailed progress callbacks.
+A generalized React Native package for file uploads with automatic chunking. This package automatically switches between chunked multipart uploads (for large files) and simple uploads (for smaller files) based on file size, supports concurrent uploads, and provides detailed progress callbacks.
 
 ## Features
 
+- ✅ **Automatic upload method selection** - Automatically uses chunked upload for large files and simple upload for smaller files
 - ✅ Chunked uploads for large files (configurable chunk size, up to 4GB)
+- ✅ Simple uploads for smaller files (with progress tracking)
 - ✅ Concurrent file and chunk uploads
 - ✅ Real-time progress tracking per file and overall progress
 - ✅ Support for photos and videos
 - ✅ Automatic video thumbnail generation using `expo-video-thumbnails`
 - ✅ Thumbnail upload support for videos
-- ✅ Simple single-file upload option (with progress tracking)
-- ✅ Multiple file uploads (both chunked and simple)
+- ✅ Always accepts an array of files (even for single file uploads)
 - ✅ TypeScript support with full type definitions
 - ✅ Expo compatible
 - ✅ Error handling with detailed failure reasons
@@ -54,23 +55,21 @@ bun add expo-video-thumbnails
 
 ## Usage
 
-### Chunked Upload (Recommended for Large Files)
+The package provides a single unified `uploadFiles` function that automatically selects the best upload method based on file size. Files larger than the threshold use chunked multipart upload, while smaller files use simple upload.
 
-For large files that need to be uploaded in chunks:
+### Basic Example
 
 ```typescript
-import {
-  uploadFile,
-  uploadMultipleFiles,
-  UploadConfig,
-  FileUploadConfig,
-} from "react-native-chunk-upload";
+import { uploadFiles, UnifiedUploadConfig, FileUploadConfig } from "react-native-chunk-upload";
 
 // Configure your upload
-const uploadConfig: UploadConfig = {
-  // Required: Function to get signed URLs for chunks
+const uploadConfig: UnifiedUploadConfig = {
+  // File size threshold in bytes (default: 5MB)
+  // Files >= this size will use chunked upload, files < this size will use simple upload
+  chunkThresholdBytes: 5 * 1024 * 1024, // 5MB
+
+  // Required: Function to get signed URLs for chunked uploads (files >= threshold)
   getSignedUrls: async ({ mediaType, totalParts, contentType, extension }) => {
-    // Call your backend API to get signed URLs
     const response = await fetch("/api/upload/chunks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -90,9 +89,8 @@ const uploadConfig: UploadConfig = {
     };
   },
 
-  // Required: Function to mark upload as complete
+  // Required: Function to mark chunked upload as complete
   markUploadComplete: async ({ eTags, key, uploadId }) => {
-    // Call your backend API to complete the multipart upload
     const response = await fetch("/api/upload/complete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -100,6 +98,18 @@ const uploadConfig: UploadConfig = {
     });
     if (!response.ok) throw new Error("Failed to complete upload");
     return response.json();
+  },
+
+  // Required: Function to get signed URL for simple uploads (files < threshold)
+  getSimpleUploadUrl: async ({ contentType, extension }) => {
+    const response = await fetch("/api/upload/simple", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contentType, extension }),
+    });
+    if (!response.ok) throw new Error("Failed to get simple upload URL");
+    const data = await response.json();
+    return { url: data.url, key: data.key };
   },
 
   // Optional: For video thumbnail uploads
@@ -139,33 +149,35 @@ const uploadConfig: UploadConfig = {
   maxFileSizeMB: 4096, // Max file size in MB (default: 4096MB = 4GB)
 };
 
-// Upload a single file
-const fileConfig: FileUploadConfig = {
-  fileIndex: 0,
-  filePath: "/path/to/file.jpg",
-  fileSize: 1024 * 1024 * 10, // 10MB
-  mediaType: "photo",
-  contentType: "image/jpg",
-  extension: "jpg",
-};
-
-const result = await uploadFile(fileConfig, uploadConfig);
-console.log("Upload result:", result);
-
-// Upload multiple files
+// Upload a single file (always pass as array)
 const files: FileUploadConfig[] = [
   {
     fileIndex: 0,
-    filePath: "/path/to/image1.jpg",
-    fileSize: 1024 * 1024 * 5,
+    filePath: "/path/to/file.jpg",
+    fileSize: 1024 * 1024 * 10, // 10MB - will use chunked upload (>= 5MB threshold)
     mediaType: "photo",
-    contentType: "image/jpg",
+    contentType: "image/jpeg",
+    extension: "jpg",
+  },
+];
+
+const results = await uploadFiles(files, uploadConfig);
+console.log("Upload result:", results[0]);
+
+// Upload multiple files (mixed sizes)
+const multipleFiles: FileUploadConfig[] = [
+  {
+    fileIndex: 0,
+    filePath: "/path/to/small-image.jpg",
+    fileSize: 1024 * 1024 * 2, // 2MB - will use simple upload (< 5MB threshold)
+    mediaType: "photo",
+    contentType: "image/jpeg",
     extension: "jpg",
   },
   {
     fileIndex: 1,
-    filePath: "/path/to/video.mp4",
-    fileSize: 1024 * 1024 * 50,
+    filePath: "/path/to/large-video.mp4",
+    fileSize: 1024 * 1024 * 50, // 50MB - will use chunked upload (>= 5MB threshold)
     mediaType: "video",
     thumbnailPath: "/path/to/thumbnail.jpg", // Generated using expo-video-thumbnails
     contentType: "video/mp4",
@@ -173,45 +185,8 @@ const files: FileUploadConfig[] = [
   },
 ];
 
-const results = await uploadMultipleFiles(files, uploadConfig);
-console.log("Upload results:", results);
-```
-
-### Simple Upload (For Small Files)
-
-For smaller files that don't need chunking:
-
-```typescript
-import {
-  uploadSimpleFile,
-  uploadMultipleSimpleFiles,
-  SimpleUploadConfig,
-} from "react-native-chunk-upload";
-
-// Upload a single file
-const result = await uploadSimpleFile({
-  signedUrl: "https://s3.amazonaws.com/bucket/file.jpg?signature=...",
-  filePath: "/path/to/file.jpg",
-  onProgress: (percentage) => {
-    console.log(`Progress: ${percentage}%`);
-  },
-});
-
-// Upload multiple files
-const uploadConfigs: SimpleUploadConfig[] = [
-  {
-    signedUrl: "https://s3.amazonaws.com/bucket/file1.jpg?signature=...",
-    filePath: "/path/to/file1.jpg",
-    onProgress: (percentage) => console.log(`File 1: ${percentage}%`),
-  },
-  {
-    signedUrl: "https://s3.amazonaws.com/bucket/file2.jpg?signature=...",
-    filePath: "/path/to/file2.jpg",
-    onProgress: (percentage) => console.log(`File 2: ${percentage}%`),
-  },
-];
-
-const results = await uploadMultipleSimpleFiles(uploadConfigs, 3); // Optional: concurrency limit
+const uploadResults = await uploadFiles(multipleFiles, uploadConfig);
+console.log("Upload results:", uploadResults);
 ```
 
 ### Video Thumbnail Generation
@@ -243,18 +218,38 @@ const videoFile: FileUploadConfig = {
 
 ## API Reference
 
+### Functions
+
+#### `uploadFiles(files, config)`
+
+Uploads one or more files, automatically selecting chunked or simple upload based on file size.
+
+**Parameters:**
+- `files` (required): Array of `FileUploadConfig` objects. Always pass an array, even for a single file.
+- `config` (required): `UnifiedUploadConfig` object with all required callbacks and optional settings.
+
+**Returns:** `Promise<UploadFileResult[]>` - Array of upload results, one per file, in the same order as input.
+
+**Behavior:**
+- Files with `fileSize >= chunkThresholdBytes` use chunked multipart upload
+- Files with `fileSize < chunkThresholdBytes` use simple upload
+- All files are uploaded concurrently up to `concurrentFileUploadLimit`
+- Progress callbacks are called for both chunked and simple uploads
+
 ### Types
 
-#### `UploadConfig`
+#### `UnifiedUploadConfig`
 
-Configuration object for chunked uploads.
+Configuration object for unified uploads.
 
-- `getSignedUrls` (required): Function that returns signed URLs for chunks
-- `markUploadComplete` (required): Function to complete the multipart upload
+- `chunkThresholdBytes` (optional): File size threshold in bytes. Files >= this size use chunked upload, files < this size use simple upload. Default: 5MB (5 * 1024 * 1024)
+- `getSignedUrls` (required): Function to get signed URLs for chunked uploads
+- `markUploadComplete` (required): Function to complete chunked multipart uploads
+- `getSimpleUploadUrl` (required): Function to get signed URL for simple uploads
 - `getThumbnailSignedUrl` (optional): Function to get signed URL for video thumbnails
-- `getImageSize` (optional): Function to get image dimensions
+- `getImageSize` (optional): Function to get image/video dimensions
 - `onProgress` (optional): Callback for per-file progress updates
-- `onTotalProgress` (optional): Callback for overall progress updates
+- `onTotalProgress` (optional): Callback for overall progress across all files
 - `chunkSize` (optional): Size of each chunk in bytes (default: 5MB)
 - `concurrentFileUploadLimit` (optional): Max concurrent file uploads (default: 3)
 - `concurrentChunkUploadLimit` (optional): Max concurrent chunk uploads (default: 6)
@@ -264,81 +259,53 @@ Configuration object for chunked uploads.
 
 Configuration for a single file upload.
 
-- `fileIndex`: Unique index for the file
-- `filePath`: Path to the file
-- `fileSize`: Size of the file in bytes
+- `fileIndex`: Unique index identifier for this file
+- `filePath`: Local file path to upload
+- `fileSize`: File size in bytes
 - `mediaType`: 'photo' or 'video'
-- `thumbnailPath` (optional): Path to thumbnail (required for videos)
-- `contentType` (optional): MIME type
-- `extension` (optional): File extension
-
-#### `UploadProgress`
-
-Progress information for a file upload.
-
-- `totalParts`: Total number of chunks
-- `uploadedParts`: Number of uploaded chunks
-- `percentComplete`: Upload percentage (0-100)
-- `uploadedBytes`: Bytes uploaded so far
-- `totalBytes`: Total file size
-- `uploadFailed`: Whether upload failed
-- `uploadCompleted`: Whether upload completed
-- `reason` (optional): Failure reason if upload failed
+- `thumbnailPath` (optional): Path to thumbnail image (required for videos)
+- `contentType` (optional): MIME content type (e.g., 'image/jpeg', 'video/mp4')
+- `extension` (optional): File extension (e.g., 'jpg', 'mp4')
 
 #### `UploadFileResult`
 
 Result of a file upload.
 
-- `fileIndex`: File index
+- `fileIndex`: File index that was uploaded
 - `mediaType`: 'photo' or 'video'
-- `key`: S3 key of uploaded file
+- `key`: S3 key where the file is stored
+- `height` (optional): Image/video height in pixels
+- `width` (optional): Image/video width in pixels
 - `thumbnailKey` (optional): S3 key of thumbnail (for videos)
-- `height` (optional): Image/video height
-- `width` (optional): Image/video width
-- `uploadFailed` (optional): Whether upload failed
-- `reason` (optional): Failure reason if upload failed
+- `uploadFailed`: Whether the upload failed
+- `reason` (optional): Error message or Error object if upload failed
 
-### Functions
+#### `UploadProgress`
 
-#### `uploadFile(fileConfig, uploadConfig)`
+Progress information for a file upload.
 
-Upload a single file using chunked upload.
-
-Returns: `Promise<UploadFileResult>`
-
-#### `uploadMultipleFiles(files, uploadConfig)`
-
-Upload multiple files concurrently using chunked upload.
-
-Returns: `Promise<UploadFileResult[]>`
-
-#### `uploadSimpleFile(uploadConfig)`
-
-Upload a single file without chunking. Supports progress tracking via XMLHttpRequest.
-
-Returns: `Promise<{ status: number; headers: Record<string, string>; body: string }>`
-
-#### `uploadMultipleSimpleFiles(files, concurrency?)`
-
-Upload multiple files concurrently without chunking.
-
-- `files`: Array of `SimpleUploadConfig` objects
-- `concurrency` (optional): Maximum concurrent uploads (default: 6)
-
-Returns: `Promise<Array<{ status: number; headers: Record<string, string>; body: string }>>`
+- `totalParts`: Total number of chunks (for chunked uploads)
+- `uploadedParts`: Number of uploaded chunks (for chunked uploads)
+- `percentComplete`: Upload percentage (0-100)
+- `uploadedBytes`: Bytes uploaded so far
+- `totalBytes`: Total file size
+- `uploadFailed`: Whether upload failed
+- `uploadCompleted`: Whether upload completed
 
 ## Example: Integration with GraphQL
 
 ```typescript
 import { ApolloClient } from "@apollo/client";
-import { uploadMultipleFiles, UploadConfig } from "react-native-chunk-upload";
-import { GET_UPLOAD_CHUNK, MARK_UPLOAD_COMPLETE } from "./graphql";
+import { uploadFiles, UnifiedUploadConfig } from "react-native-chunk-upload";
+import { GET_UPLOAD_CHUNK, MARK_UPLOAD_COMPLETE, GET_SIMPLE_UPLOAD } from "./graphql";
 
 const client = new ApolloClient({
   /* ... */
 });
 
-const uploadConfig: UploadConfig = {
+const uploadConfig: UnifiedUploadConfig = {
+  chunkThresholdBytes: 5 * 1024 * 1024, // 5MB
+
   getSignedUrls: async ({ mediaType, totalParts, contentType, extension }) => {
     const query =
       mediaType === "photo" ? GET_IMAGE_UPLOAD_CHUNK : GET_VIDEO_UPLOAD_CHUNK;
@@ -368,11 +335,25 @@ const uploadConfig: UploadConfig = {
     return res.data;
   },
 
+  getSimpleUploadUrl: async ({ contentType, extension }) => {
+    const res = await client.query({
+      query: GET_SIMPLE_UPLOAD,
+      variables: { contentType, extension },
+    });
+    return {
+      url: res.data.getSimpleUpload.url,
+      key: res.data.getSimpleUpload.key,
+    };
+  },
+
   onProgress: (fileIndex, progress) => {
     // Update your state/store
     updateFileProgress(fileIndex, progress);
   },
 };
+
+const files = [/* ... */];
+const results = await uploadFiles(files, uploadConfig);
 ```
 
 ## Example App
@@ -385,7 +366,7 @@ An example React Native app demonstrating the package usage is available in the 
 - Video thumbnail generation
 - Progress tracking UI
 - Error handling with detailed messages
-- Multiple upload methods (chunked and simple)
+- Automatic upload method selection
 
 To run the example:
 
@@ -401,10 +382,10 @@ See the [example README](./example/README.md) for detailed setup instructions.
 
 Your backend needs to provide the following endpoints:
 
-1. **POST /api/upload/chunks** - Get signed URLs for multipart upload chunks
-2. **POST /api/upload/complete** - Complete multipart upload
-3. **POST /api/upload/thumbnail** - Get signed URL for thumbnail upload (optional, for videos)
-4. **POST /api/upload/simple** - Get signed URL for simple upload (optional)
+1. **POST /api/upload/chunks** - Get signed URLs for multipart upload chunks (for files >= threshold)
+2. **POST /api/upload/complete** - Complete multipart upload (for chunked uploads)
+3. **POST /api/upload/simple** - Get signed URL for simple upload (for files < threshold)
+4. **POST /api/upload/thumbnail** - Get signed URL for thumbnail upload (optional, for videos)
 
 See the example backend in `example/backend/` for a complete implementation using AWS S3 and LocalStack.
 
