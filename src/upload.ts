@@ -799,6 +799,9 @@ export async function uploadFiles(
   const chunkThreshold =
     config.chunkThresholdBytes ?? DEFAULT_CHUNK_THRESHOLD_BYTES;
 
+  const effectiveMaxFileSizeMB =
+    config.maxFileSizeMB ?? DEFAULT_MAX_FILE_SIZE_MB;
+
   // Separate files into chunked and simple upload groups
   const chunkedFiles: FileUploadConfig[] = [];
   const simpleFiles: FileUploadConfig[] = [];
@@ -820,7 +823,7 @@ export async function uploadFiles(
       chunkSize: config.chunkSize,
       concurrentFileUploadLimit: config.concurrentFileUploadLimit,
       concurrentChunkUploadLimit: config.concurrentChunkUploadLimit,
-      maxFileSizeMB: config.maxFileSizeMB,
+      maxFileSizeMB: effectiveMaxFileSizeMB,
       getSignedUrls: async (params) => {
         const response = await config.getUploadUrl({
           uploadType: "chunked",

@@ -190,28 +190,7 @@ const videoFile: FileUploadConfig = {
 const results = await uploadFiles([videoFile], uploadConfig);
 ```
 
-If you want to manually generate thumbnails or customize the generation, you can use the exported `generateVideoThumbnail` function:
-
-```typescript
-import { generateVideoThumbnail } from "react-native-chunk-upload";
-
-// Manually generate thumbnail with custom options
-const thumbnailPath = await generateVideoThumbnail(videoUri, {
-  time: 2000, // Get thumbnail at 2 seconds
-  quality: 0.9, // Higher quality
-});
-
-if (thumbnailPath) {
-  // Use the generated thumbnail
-  const videoFile: FileUploadConfig = {
-    fileIndex: 0,
-    filePath: videoUri,
-    fileSize: videoSize,
-    mediaType: "video",
-    thumbnailPath, // Use manually generated thumbnail
-  };
-}
-```
+**Note:** Thumbnails are automatically generated for videos if `expo-video-thumbnails` is installed. You don't need to manually generate or provide thumbnails - the package handles this internally.
 
 ## API Reference
 
@@ -260,7 +239,7 @@ Configuration for a single file upload.
 - `filePath`: Local file path to upload
 - `fileSize`: File size in bytes
 - `mediaType`: 'photo' or 'video'
-- `thumbnailPath` (optional): Path to thumbnail image (required for videos)
+- `thumbnailPath` (optional): Path to thumbnail image. If not provided for videos, will be auto-generated if `expo-video-thumbnails` is installed
 - `contentType` (optional): MIME content type (e.g., 'image/jpeg', 'video/mp4')
 - `extension` (optional): File extension (e.g., 'jpg', 'mp4')
 
