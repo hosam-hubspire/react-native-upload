@@ -13,7 +13,7 @@ import {
   uploadFiles,
   UnifiedUploadConfig,
   FileUploadConfig,
-} from "react-native-chunk-upload";
+} from "@hubspire/react-native-chunk-upload";
 
 // Configuration - Update this to match your backend URL
 const API_BASE_URL = __DEV__
