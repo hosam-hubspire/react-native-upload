@@ -16,11 +16,11 @@ A generalized React Native package for file uploads with automatic chunking. Thi
 ## Installation
 
 ```bash
-npm install @hosam-hsm/react-native-chunk-upload
+npm install @hubspire/react-native-chunk-upload
 # or
-yarn add @hosam-hsm/react-native-chunk-upload
+yarn add @hubspire/react-native-chunk-upload
 # or
-bun add @hosam-hsm/react-native-chunk-upload
+bun add @hubspire/react-native-chunk-upload
 ```
 
 ## Peer Dependencies
@@ -60,7 +60,7 @@ import {
   uploadFiles,
   UnifiedUploadConfig,
   FileUploadConfig,
-} from "@hosam-hsm/react-native-chunk-upload";
+} from "@hubspire/react-native-chunk-upload";
 
 // Configure your upload
 const uploadConfig: UnifiedUploadConfig = {
