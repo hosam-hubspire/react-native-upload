@@ -104,9 +104,11 @@ const uploadConfig: UnifiedUploadConfig = {
   },
 
   // Optional: Progress callbacks
-  onProgress: (fileIndex, progress) => {
-    console.log(`File ${fileIndex}: ${progress.percentComplete}%`);
-    // progress includes: percentComplete, uploadedBytes, totalBytes, uploadFailed, uploadCompleted
+  onProgress: (progress) => {
+    console.log(`File ${progress.fileIndex}: ${progress.percentComplete}%`);
+    // progress includes: fileIndex, status, percentComplete, uploadedBytes, totalBytes, error
+    // status: "uploading" | "completed" | "failed"
+    // error: string | Error (only present if status === "failed")
   },
   onTotalProgress: (progress) => {
     console.log(`Overall: ${progress.overallPercentComplete}%`);
@@ -211,7 +213,7 @@ Configuration object for unified uploads.
 - `chunkThresholdBytes` (optional): File size threshold in bytes. Files >= this size use chunked upload, files < this size use simple upload. Default: 5MB (5 _ 1024 _ 1024)
 - `getUploadUrl` (required): Unified function to get signed URLs for chunked, simple, and thumbnail uploads. The library calls this with `uploadType: "chunked"`, `uploadType: "simple"`, or `uploadType: "thumbnail"` as needed.
 - `markUploadComplete` (required): Function to complete chunked multipart uploads
-- `onProgress` (optional): Callback for per-file progress updates
+- `onProgress` (optional): Callback for per-file progress updates. Receives `UploadProgress` object (includes `fileIndex` and `status`)
 - `onTotalProgress` (optional): Callback for overall progress across all files
 - `chunkSize` (optional): Size of each chunk in bytes (default: 5MB)
 - `concurrentFileUploadLimit` (optional): Max concurrent file uploads (default: 3)
@@ -240,20 +242,21 @@ Result of a file upload.
 - `height` (optional): Image/video height in pixels
 - `width` (optional): Image/video width in pixels
 - `thumbnailKey` (optional): S3 key of thumbnail (for videos)
-- `uploadFailed`: Whether the upload failed
-- `reason` (optional): Error message or Error object if upload failed
+- `status` (optional): Upload status ("completed" | "failed") - only present if upload finished
+- `error` (optional): Error message or Error object if upload failed
 
 #### `UploadProgress`
 
 Progress information for a file upload.
 
-- `totalParts`: Total number of chunks (for chunked uploads)
-- `uploadedParts`: Number of uploaded chunks (for chunked uploads)
-- `percentComplete`: Upload percentage (0-100)
-- `uploadedBytes`: Bytes uploaded so far
-- `totalBytes`: Total file size
-- `uploadFailed`: Whether upload failed
-- `uploadCompleted`: Whether upload completed
+- `fileIndex`: File index that this progress update is for
+- `status`: Upload status ("uploading" | "completed" | "failed")
+- `totalParts` (optional): Total number of chunks (for chunked uploads)
+- `uploadedParts` (optional): Number of uploaded chunks (for chunked uploads)
+- `percentComplete` (optional): Upload percentage (0-100)
+- `uploadedBytes` (optional): Bytes uploaded so far
+- `totalBytes` (optional): Total file size
+- `error` (optional): Error message or Error object if upload failed
 
 ## Example App
 
@@ -289,7 +292,6 @@ Your backend needs to provide the following endpoints:
 - **POST /api/upload/complete** - Complete multipart upload (required for chunked uploads)
 
 **Optional:**
-
 
 See the example backend in `example/backend/` for a complete implementation using AWS S3 and LocalStack.
 

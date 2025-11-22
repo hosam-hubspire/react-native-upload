@@ -13,6 +13,7 @@ import {
   uploadFiles,
   UnifiedUploadConfig,
   FileUploadConfig,
+  UploadProgress,
 } from "@hubspire/react-native-chunk-upload";
 
 // Configuration - Update this to match your backend URL
@@ -55,16 +56,6 @@ const markUploadComplete = async ({ eTags, key, uploadId }: any) => {
   if (!response.ok) throw new Error("Failed to complete upload");
   return response.json();
 };
-
-interface UploadProgress {
-  fileIndex: number;
-  percentComplete: number;
-  uploadedBytes: number;
-  totalBytes: number;
-  status: "uploading" | "completed" | "failed";
-  error?: string;
-  reason?: string;
-}
 
 export default function Index() {
   const [selectedFiles, setSelectedFiles] = useState<FileUploadConfig[]>([]);
@@ -153,21 +144,14 @@ export default function Index() {
   const uploadConfig: UnifiedUploadConfig = {
     getUploadUrl,
     markUploadComplete,
-    onProgress: (fileIndex, progress) => {
+    onProgress: (progress) => {
       setUploadProgress((prev) => {
         const newMap = new Map(prev);
-        newMap.set(fileIndex, {
-          fileIndex,
+        newMap.set(progress.fileIndex, {
+          ...progress,
           percentComplete: progress.percentComplete || 0,
           uploadedBytes: progress.uploadedBytes || 0,
           totalBytes: progress.totalBytes || 0,
-          status: progress.uploadFailed
-            ? "failed"
-            : progress.uploadCompleted
-            ? "completed"
-            : "uploading",
-          error: progress.uploadFailed ? "Upload failed" : undefined,
-          reason: (progress as any).reason,
         });
         return newMap;
       });
@@ -199,18 +183,17 @@ export default function Index() {
       setUploadProgress((prev) => {
         const newMap = new Map(prev);
         results.forEach((result) => {
-          if (result.uploadFailed && result.reason) {
+          if (result.status === "failed" && result.error) {
             const existing = newMap.get(result.fileIndex);
             if (existing) {
-              const reasonStr =
-                typeof result.reason === "string"
-                  ? result.reason
-                  : String(result.reason || "Upload failed");
+              const errorStr =
+                typeof result.error === "string"
+                  ? result.error
+                  : String(result.error || "Upload failed");
               newMap.set(result.fileIndex, {
                 ...existing,
                 status: "failed",
-                reason: reasonStr,
-                error: reasonStr,
+                error: errorStr,
               });
             }
           }
@@ -218,7 +201,7 @@ export default function Index() {
         return newMap;
       });
 
-      const failed = results.filter((r) => r.uploadFailed);
+      const failed = results.filter((r) => r.status === "failed");
       if (failed.length > 0) {
         Alert.alert(
           "Upload completed with errors",
@@ -362,14 +345,14 @@ export default function Index() {
             <View key={progress.fileIndex} style={styles.progressItem}>
               <Text style={styles.progressLabel}>
                 File {progress.fileIndex + 1}:{" "}
-                {Math.round(progress.percentComplete)}%
+                {Math.round(progress.percentComplete || 0)}%
               </Text>
               <View style={styles.progressBar}>
                 <View
                   style={[
                     styles.progressFill,
                     {
-                      width: `${progress.percentComplete}%`,
+                      width: `${progress.percentComplete || 0}%`,
                       backgroundColor:
                         progress.status === "failed"
                           ? "#ff4444"
@@ -382,7 +365,9 @@ export default function Index() {
               </View>
               {progress.status === "failed" && (
                 <Text style={styles.errorText}>
-                  {progress.reason || progress.error || "Upload failed"}
+                  {typeof progress.error === "string"
+                    ? progress.error
+                    : progress.error?.message || "Upload failed"}
                 </Text>
               )}
             </View>
@@ -401,8 +386,13 @@ export default function Index() {
                   ? result.fileIndex + 1
                   : index + 1}
                 :{" "}
-                {result.uploadFailed ? (
-                  <Text style={styles.errorText}>Failed - {result.reason}</Text>
+                {result.status === "failed" ? (
+                  <Text style={styles.errorText}>
+                    Failed -{" "}
+                    {typeof result.error === "string"
+                      ? result.error
+                      : result.error?.message || "Upload failed"}
+                  </Text>
                 ) : (
                   <Text style={styles.successText} numberOfLines={0}>
                     Success! Key: {result.key || "N/A"}

@@ -1,7 +1,12 @@
 /**
  * Progress information for a file upload operation.
+ * This type is passed to the onProgress callback.
  */
 export interface UploadProgress {
+  /** File index that this progress update is for */
+  fileIndex: number;
+  /** Upload status: "uploading" | "completed" | "failed" */
+  status: "uploading" | "completed" | "failed";
   /** Total number of chunks/parts for the file */
   totalParts?: number;
   /** Number of chunks/parts that have been uploaded */
@@ -12,10 +17,8 @@ export interface UploadProgress {
   uploadedBytes?: number;
   /** Total file size in bytes */
   totalBytes?: number;
-  /** Whether the upload has failed */
-  uploadFailed?: boolean;
-  /** Whether the upload has completed successfully */
-  uploadCompleted?: boolean;
+  /** Error message or Error object if upload failed */
+  error?: string | Error;
 }
 
 /**
@@ -72,10 +75,10 @@ export interface UploadFileResult {
   width?: number;
   /** S3 key of the uploaded thumbnail (for videos) */
   thumbnailKey?: string;
-  /** Whether the upload failed */
-  uploadFailed?: boolean;
+  /** Upload status: "completed" | "failed" (only present if upload finished) */
+  status?: "completed" | "failed";
   /** Error message or Error object if upload failed */
-  reason?: string | Error;
+  error?: string | Error;
   // Chunk-specific fields (only present during chunked uploads)
   /** ETag returned from S3 for this chunk (only for chunk uploads) */
   eTag?: string | null;
@@ -140,10 +143,9 @@ export interface UnifiedUploadConfig {
   /**
    * Optional callback for per-file progress updates.
    *
-   * @param fileIndex - Index of the file being uploaded
-   * @param progress - Progress information for this file
+   * @param progress - Progress information for this file (includes fileIndex)
    */
-  onProgress?: (fileIndex: number, progress: UploadProgress) => void;
+  onProgress?: (progress: UploadProgress) => void;
   /**
    * Optional callback for overall progress across all files.
    *

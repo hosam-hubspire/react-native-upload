@@ -31,21 +31,23 @@ function updateChunkUploadProgress(
   uploadedPartsCount: number,
   partSize: number,
   fileSize: number,
-  onProgress?: (fileIndex: number, progress: UploadProgress) => void
+  onProgress?: (progress: UploadProgress) => void
 ) {
   const percentComplete = Math.ceil((uploadedPartsCount / totalParts) * 100);
   const uploadedBytes = uploadedPartsCount * partSize;
 
   const progress: UploadProgress = {
+    fileIndex,
     totalParts,
     uploadedParts: uploadedPartsCount,
     percentComplete,
     uploadedBytes,
     totalBytes: fileSize,
+    status: "uploading",
   };
 
   if (onProgress) {
-    onProgress(fileIndex, progress);
+    onProgress(progress);
   }
 }
 
@@ -316,7 +318,7 @@ async function readAndUploadFileAsChunks({
     }
 
     const processedETags: UploadFileResult[] = eTags.map((result: any) => {
-      if (!result.error) {
+      if (!result.error && result.eTag) {
         return {
           fileIndex,
           eTag: result.eTag,
@@ -334,8 +336,8 @@ async function readAndUploadFileAsChunks({
           eTag: null,
           partNumber: result.partNumber,
           mediaType,
-          uploadFailed: true,
-          reason: result.reason,
+          status: "failed",
+          error: result.reason,
         };
       }
     });
@@ -380,8 +382,8 @@ async function readAndUploadFileAsChunks({
  *       const response = await fetch('/api/upload/complete', { ... });
  *       return response.json();
  *     },
- *     onProgress: (fileIndex, progress) => {
- *       console.log(`File ${fileIndex}: ${progress.percentComplete}%`);
+ *     onProgress: (progress) => {
+ *       console.log(`File ${progress.fileIndex}: ${progress.percentComplete}%`);
  *     }
  *   }
  * );
@@ -400,19 +402,22 @@ async function uploadFile(
   const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
 
   if (parseInt(fileSizeMB, 10) > maxFileSizeMB) {
+    const error = `File size is greater than ${maxFileSizeMB} MB`;
     const progress: UploadProgress = {
-      uploadFailed: true,
+      fileIndex,
+      status: "failed",
       totalBytes: fileSize,
+      error,
     };
     if (config.onProgress) {
-      config.onProgress(fileIndex, progress);
+      config.onProgress(progress);
     }
 
     return {
       fileIndex,
       mediaType,
-      uploadFailed: true,
-      reason: `File size is greater than ${maxFileSizeMB} MB`,
+      status: "failed",
+      error: `File size is greater than ${maxFileSizeMB} MB`,
     };
   }
 
@@ -424,9 +429,10 @@ async function uploadFile(
       config,
     });
 
-    const uploadFailed = uploadResponses.find(
-      (res) => res.fileIndex === fileIndex && res.uploadFailed
-    )?.uploadFailed;
+    const uploadFailed =
+      uploadResponses.find(
+        (res) => res.fileIndex === fileIndex && res.status === "failed"
+      )?.status === "failed";
 
     if (!uploadFailed && uploadResponses.length > 0) {
       const eTagsKeyAndUploadId = uploadResponses
@@ -444,22 +450,24 @@ async function uploadFile(
         });
 
         const progress: UploadProgress = {
-          uploadCompleted: true,
+          fileIndex,
+          status: "completed",
           totalBytes: fileSize,
           uploadedBytes: fileSize,
           percentComplete: 100,
         };
         if (config.onProgress) {
-          config.onProgress(fileIndex, progress);
+          config.onProgress(progress);
         }
       }
     } else {
       const progress: UploadProgress = {
-        uploadFailed: true,
+        fileIndex,
+        status: "failed",
         totalBytes: fileSize,
       };
       if (config.onProgress) {
-        config.onProgress(fileIndex, progress);
+        config.onProgress(progress);
       }
     }
 
@@ -474,15 +482,15 @@ async function uploadFile(
           height: res.height,
           width: res.width,
           ...(res.mediaType === "video" && { thumbnailKey: res.thumbnailKey }),
-          ...(res.uploadFailed && {
-            uploadFailed: true,
-            reason: res.reason,
+          ...(res.status === "failed" && {
+            status: "failed",
+            error: res.error,
           }),
         });
-      } else if (res.uploadFailed) {
+      } else if (res.status === "failed") {
         const existingEntry = fileUploadStatusMap.get(res.fileIndex)!;
-        existingEntry.uploadFailed = true;
-        existingEntry.reason = res.reason;
+        existingEntry.status = "failed";
+        existingEntry.error = res.error;
       }
     });
 
@@ -492,24 +500,26 @@ async function uploadFile(
       formattedResponse || {
         fileIndex,
         mediaType,
-        uploadFailed: true,
-        reason: "No upload response received",
+        status: "failed",
+        error: "No upload response received",
       }
     );
   } catch (error: any) {
     const progress: UploadProgress = {
-      uploadFailed: true,
+      fileIndex,
+      status: "failed",
       totalBytes: fileSize,
+      error: error,
     };
     if (config.onProgress) {
-      config.onProgress(fileIndex, progress);
+      config.onProgress(progress);
     }
 
     return {
       fileIndex,
       mediaType,
-      uploadFailed: true,
-      reason: error?.message || String(error),
+      status: "failed",
+      error: error?.message || String(error),
     };
   }
 }
@@ -576,7 +586,7 @@ async function uploadMultipleFiles(
         (sum: number, file: UploadFileResult) => {
           // This is a simplified calculation - in a real scenario you'd track bytes per file
           const fileSize = fileSizeMap.get(file.fileIndex) || 0;
-          return sum + (file.uploadFailed ? 0 : fileSize);
+          return sum + (file.status === "failed" ? 0 : fileSize);
         },
         0
       );
@@ -609,11 +619,11 @@ async function uploadMultipleFiles(
  * @returns Promise resolving to the upload response with status, headers, and body
  */
 async function uploadSimpleFile(
-  file: FileUploadConfig,
+  fileConfig: FileUploadConfig,
   signedUrl: string,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<{ status: number; headers: Record<string, string>; body: string }> {
-  const { filePath } = file;
+  const { filePath } = fileConfig;
 
   try {
     // Read file as bytes
@@ -631,10 +641,11 @@ async function uploadSimpleFile(
           if (event.lengthComputable && onProgress) {
             const percentage = (event.loaded / event.total) * 100;
             onProgress({
+              fileIndex: fileConfig.fileIndex,
               percentComplete: percentage,
               uploadedBytes: event.loaded,
               totalBytes: event.total,
-              uploadCompleted: percentage === 100,
+              status: percentage === 100 ? "completed" : "uploading",
             });
           }
         });
@@ -797,8 +808,8 @@ async function uploadMultipleSimpleFiles(
  *       return response.json();
  *       // Returns { urls, key, uploadId } for chunked or { url, key } for simple
  *     },
- *     onProgress: (fileIndex, progress) => {
- *       console.log(`File ${fileIndex}: ${progress.percentComplete}%`);
+ *     onProgress: (progress) => {
+ *       console.log(`File ${progress.fileIndex}: ${progress.percentComplete}%`);
  *     }
  *   }
  * );
@@ -866,11 +877,7 @@ export async function uploadFiles(
     const simpleUploadData = simpleFileData.map((data) => ({
       file: data.file,
       signedUrl: data.signedUrl,
-      onProgress: config.onProgress
-        ? (progress: UploadProgress) => {
-            config.onProgress!(data.file.fileIndex, progress);
-          }
-        : undefined,
+      onProgress: config.onProgress,
     }));
 
     const concurrentLimit =
@@ -957,10 +964,10 @@ export async function uploadFiles(
           height,
           width,
           thumbnailKey,
-          uploadFailed,
-          reason: uploadFailed
-            ? `Upload failed with status ${uploadResult.status}`
-            : undefined,
+          ...(uploadFailed && {
+            status: "failed" as const,
+            error: `Upload failed with status ${uploadResult.status}`,
+          }),
         });
       })
     );
@@ -976,8 +983,8 @@ export async function uploadFiles(
       results.push({
         fileIndex: file.fileIndex,
         mediaType: file.mediaType,
-        uploadFailed: true,
-        reason: "Upload result not found",
+        status: "failed",
+        error: "Upload result not found",
       });
     }
   });
@@ -988,7 +995,7 @@ export async function uploadFiles(
     const totalUploadedBytes = results.reduce((sum, result) => {
       const file = files.find((f) => f.fileIndex === result.fileIndex);
       if (!file) return sum;
-      return sum + (result.uploadFailed ? 0 : file.fileSize);
+      return sum + (result.status === "failed" ? 0 : file.fileSize);
     }, 0);
 
     const overallPercentComplete =
