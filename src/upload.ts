@@ -1,15 +1,11 @@
 import { File } from "expo-file-system";
 import { fetch } from "expo/fetch";
 import {
-  UploadConfig,
   FileUploadConfig,
-  UploadChunkResult,
   UploadFileResult,
   UploadProgress,
-  SimpleUploadConfig,
   UnifiedUploadConfig,
   SignedUrlResponse,
-  SimpleSignedUrlResponse,
 } from "./types";
 import { mapConcurrent, generateVideoThumbnail, getImageSize } from "./helpers";
 
@@ -58,32 +54,41 @@ function updateChunkUploadProgress(
  *
  * @param params - Parameters for thumbnail upload
  * @param params.thumbnailPath - Local path to the thumbnail image
- * @param params.getThumbnailSignedUrl - Function to get signed URL for thumbnail
+ * @param params.getUploadUrl - Unified function to get signed URL for thumbnail
  * @returns Promise resolving to the thumbnail S3 key
  * @throws Error if thumbnail upload fails
  */
 async function uploadThumbnail({
   thumbnailPath,
-  getThumbnailSignedUrl,
+  getUploadUrl,
 }: {
   thumbnailPath: string;
-  getThumbnailSignedUrl: (config: {
+  getUploadUrl: (config: {
+    uploadType: "chunked" | "simple" | "thumbnail";
+    mediaType?: "photo" | "video";
     contentType?: string;
     extension?: string;
-  }) => Promise<{ url: string; key: string }>;
+  }) => Promise<SignedUrlResponse>;
 }) {
   try {
-    const { url, key } = await getThumbnailSignedUrl({
-      contentType: "image/jpg",
+    const response = await getUploadUrl({
+      uploadType: "thumbnail",
+      contentType: "image/jpeg",
       extension: "jpg",
     });
+
+    // For thumbnails, getUploadUrl returns SignedUrlResponse with url field
+    if (!response.url) {
+      throw new Error("Invalid response for thumbnail upload");
+    }
+    const { url, key } = response;
 
     // Read thumbnail file as bytes
     const thumbnailFile = new File(thumbnailPath);
     const thumbnailBytes = await thumbnailFile.bytes();
 
     // Upload using fetch
-    const response = await fetch(url, {
+    const uploadResponse = await fetch(url, {
       method: "PUT",
       headers: {
         "Content-Type": "image/jpeg",
@@ -91,8 +96,10 @@ async function uploadThumbnail({
       body: thumbnailBytes,
     });
 
-    if (!response.ok) {
-      throw new Error(`Thumbnail upload failed with status ${response.status}`);
+    if (!uploadResponse.ok) {
+      throw new Error(
+        `Thumbnail upload failed with status ${uploadResponse.status}`
+      );
     }
 
     return { thumbnailKey: key };
@@ -132,18 +139,25 @@ async function readAndUploadFileAsChunks({
 }: FileUploadConfig & {
   partSize: number;
   totalParts: number;
-  config: UploadConfig;
-}): Promise<UploadChunkResult[]> {
+  config: UnifiedUploadConfig;
+}): Promise<UploadFileResult[]> {
   let uploadedPartsCount = 0;
 
   try {
-    // UploadConfig still uses getSignedUrls (internal type)
-    const { urls, key, uploadId } = await config.getSignedUrls({
+    // Use getUploadUrl with uploadType: "chunked"
+    const response = await config.getUploadUrl({
+      uploadType: "chunked",
       mediaType,
       totalParts,
       contentType,
       extension,
     });
+
+    // For chunked uploads, getUploadUrl returns SignedUrlResponse with urls and uploadId
+    if (!response.urls || !response.uploadId) {
+      throw new Error("Invalid response for chunked upload");
+    }
+    const { urls, key, uploadId } = response;
 
     const keyAndUploadId = { key, uploadId };
 
@@ -266,12 +280,12 @@ async function readAndUploadFileAsChunks({
         }
       }
 
-      // Only upload thumbnail if we have one and getThumbnailSignedUrl is provided
-      if (finalThumbnailPath && config.getThumbnailSignedUrl) {
+      // Only upload thumbnail if we have one and getUploadUrl is provided
+      if (finalThumbnailPath && config.getUploadUrl) {
         try {
           const { thumbnailKey: thumbKey } = await uploadThumbnail({
             thumbnailPath: finalThumbnailPath,
-            getThumbnailSignedUrl: config.getThumbnailSignedUrl,
+            getUploadUrl: config.getUploadUrl,
           });
 
           try {
@@ -301,7 +315,7 @@ async function readAndUploadFileAsChunks({
       }
     }
 
-    const processedETags: UploadChunkResult[] = eTags.map((result: any) => {
+    const processedETags: UploadFileResult[] = eTags.map((result: any) => {
       if (!result.error) {
         return {
           fileIndex,
@@ -375,7 +389,7 @@ async function readAndUploadFileAsChunks({
  */
 async function uploadFile(
   fileConfig: FileUploadConfig,
-  config: UploadConfig
+  config: UnifiedUploadConfig
 ): Promise<UploadFileResult> {
   const { fileIndex, fileSize, mediaType } = fileConfig;
 
@@ -416,10 +430,10 @@ async function uploadFile(
 
     if (!uploadFailed && uploadResponses.length > 0) {
       const eTagsKeyAndUploadId = uploadResponses
-        .filter((res) => res.eTag)
+        .filter((res) => res.eTag && res.partNumber !== undefined)
         .map((item) => ({
           ETag: item.eTag!,
-          PartNumber: item.partNumber,
+          PartNumber: item.partNumber!,
         }));
 
       if (eTagsKeyAndUploadId.length > 0) {
@@ -536,7 +550,7 @@ async function uploadFile(
  */
 async function uploadMultipleFiles(
   files: FileUploadConfig[],
-  config: UploadConfig
+  config: UnifiedUploadConfig
 ): Promise<UploadFileResult[]> {
   if (!files.length) return [];
 
@@ -589,27 +603,17 @@ async function uploadMultipleFiles(
  * This is suitable for smaller files that don't need multipart upload.
  * Supports progress tracking via XMLHttpRequest when onProgress is provided.
  *
- * @param uploadConfig - Configuration for the simple upload
- * @param uploadConfig.signedUrl - Presigned URL to upload the file to
- * @param uploadConfig.filePath - Local path to the file
- * @param uploadConfig.onProgress - Optional progress callback (0-100)
+ * @param file - File configuration with file path and metadata
+ * @param signedUrl - Presigned URL to upload the file to
+ * @param onProgress - Optional progress callback with UploadProgress object
  * @returns Promise resolving to the upload response with status, headers, and body
- *
- * @example
- * ```typescript
- * const result = await uploadSimpleFile({
- *   signedUrl: 'https://s3.amazonaws.com/bucket/file.jpg?signature=...',
- *   filePath: '/path/to/file.jpg',
- *   onProgress: (percentage) => {
- *     console.log(`Progress: ${percentage}%`);
- *   }
- * });
- * ```
  */
 async function uploadSimpleFile(
-  uploadConfig: SimpleUploadConfig
+  file: FileUploadConfig,
+  signedUrl: string,
+  onProgress?: (progress: UploadProgress) => void
 ): Promise<{ status: number; headers: Record<string, string>; body: string }> {
-  const { signedUrl, filePath, onProgress } = uploadConfig;
+  const { filePath } = file;
 
   try {
     // Read file as bytes
@@ -624,9 +628,14 @@ async function uploadSimpleFile(
 
         // Track upload progress
         xhr.upload.addEventListener("progress", (event) => {
-          if (event.lengthComputable) {
+          if (event.lengthComputable && onProgress) {
             const percentage = (event.loaded / event.total) * 100;
-            onProgress(percentage);
+            onProgress({
+              percentComplete: percentage,
+              uploadedBytes: event.loaded,
+              totalBytes: event.total,
+              uploadCompleted: percentage === 100,
+            });
           }
         });
 
@@ -728,7 +737,11 @@ async function uploadSimpleFile(
  * ```
  */
 async function uploadMultipleSimpleFiles(
-  files: SimpleUploadConfig[],
+  files: Array<{
+    file: FileUploadConfig;
+    signedUrl: string;
+    onProgress?: (progress: UploadProgress) => void;
+  }>,
   concurrency: number = DEFAULT_CONCURRENT_CHUNK_UPLOAD_LIMIT
 ): Promise<
   Array<{ status: number; headers: Record<string, string>; body: string }>
@@ -736,7 +749,8 @@ async function uploadMultipleSimpleFiles(
   try {
     const uploadTasks = await mapConcurrent(
       files,
-      (file: SimpleUploadConfig) => uploadSimpleFile(file),
+      ({ file, signedUrl, onProgress }) =>
+        uploadSimpleFile(file, signedUrl, onProgress),
       concurrency
     );
 
@@ -799,9 +813,6 @@ export async function uploadFiles(
   const chunkThreshold =
     config.chunkThresholdBytes ?? DEFAULT_CHUNK_THRESHOLD_BYTES;
 
-  const effectiveMaxFileSizeMB =
-    config.maxFileSizeMB ?? DEFAULT_MAX_FILE_SIZE_MB;
-
   // Separate files into chunked and simple upload groups
   const chunkedFiles: FileUploadConfig[] = [];
   const simpleFiles: FileUploadConfig[] = [];
@@ -819,34 +830,7 @@ export async function uploadFiles(
 
   // Upload chunked files
   if (chunkedFiles.length > 0) {
-    const chunkedConfig: UploadConfig = {
-      chunkSize: config.chunkSize,
-      concurrentFileUploadLimit: config.concurrentFileUploadLimit,
-      concurrentChunkUploadLimit: config.concurrentChunkUploadLimit,
-      maxFileSizeMB: effectiveMaxFileSizeMB,
-      getSignedUrls: async (params) => {
-        const response = await config.getUploadUrl({
-          uploadType: "chunked",
-          mediaType: params.mediaType,
-          totalParts: params.totalParts,
-          contentType: params.contentType,
-          extension: params.extension,
-        });
-        if (!("urls" in response) || !("uploadId" in response)) {
-          throw new Error("Invalid response for chunked upload");
-        }
-        return response;
-      },
-      markUploadComplete: config.markUploadComplete,
-      getThumbnailSignedUrl: config.getThumbnailSignedUrl,
-      onProgress: config.onProgress,
-      onTotalProgress: config.onTotalProgress,
-    };
-
-    const chunkedResults = await uploadMultipleFiles(
-      chunkedFiles,
-      chunkedConfig
-    );
+    const chunkedResults = await uploadMultipleFiles(chunkedFiles, config);
     chunkedResults.forEach((result) => {
       resultMap.set(result.fileIndex, result);
     });
@@ -864,8 +848,8 @@ export async function uploadFiles(
           extension: file.extension,
         });
 
-        // Type guard to ensure we have simple upload response
-        if (!("url" in response)) {
+        // For simple uploads, getUploadUrl returns SignedUrlResponse with url field
+        if (!response.url) {
           throw new Error("Invalid response for simple upload");
         }
 
@@ -879,29 +863,21 @@ export async function uploadFiles(
       })
     );
 
-    const simpleUploadConfigs: SimpleUploadConfig[] = simpleFileData.map(
-      (data) => ({
-        signedUrl: data.signedUrl,
-        filePath: data.file.filePath,
-        onProgress: config.onProgress
-          ? (percentage: number) => {
-              const progress: UploadProgress = {
-                percentComplete: percentage,
-                uploadedBytes: (data.file.fileSize * percentage) / 100,
-                totalBytes: data.file.fileSize,
-                uploadCompleted: percentage === 100,
-              };
-              config.onProgress!(data.file.fileIndex, progress);
-            }
-          : undefined,
-      })
-    );
+    const simpleUploadData = simpleFileData.map((data) => ({
+      file: data.file,
+      signedUrl: data.signedUrl,
+      onProgress: config.onProgress
+        ? (progress: UploadProgress) => {
+            config.onProgress!(data.file.fileIndex, progress);
+          }
+        : undefined,
+    }));
 
     const concurrentLimit =
       config.concurrentFileUploadLimit || DEFAULT_CONCURRENT_FILE_UPLOAD_LIMIT;
 
     const simpleUploadResults = await uploadMultipleSimpleFiles(
-      simpleUploadConfigs,
+      simpleUploadData,
       concurrentLimit
     );
 
@@ -945,13 +921,19 @@ export async function uploadFiles(
             }
           }
 
-          // Only upload thumbnail if we have one and getThumbnailSignedUrl is provided
-          if (finalThumbnailPath && config.getThumbnailSignedUrl) {
+          // Only upload thumbnail if we have one
+          if (finalThumbnailPath) {
             try {
-              const thumbnailResponse = await config.getThumbnailSignedUrl({
+              const thumbnailResponse = await config.getUploadUrl({
+                uploadType: "thumbnail",
                 contentType: "image/jpeg",
                 extension: "jpg",
               });
+
+              // For thumbnails, getUploadUrl returns SignedUrlResponse with url field
+              if (!thumbnailResponse.url) {
+                throw new Error("Invalid response for thumbnail upload");
+              }
               thumbnailKey = thumbnailResponse.key;
 
               const thumbnailFile = new File(finalThumbnailPath);

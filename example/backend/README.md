@@ -135,13 +135,13 @@ The server will start on `http://localhost:3000`
 
 ### POST /api/upload/url
 
-Unified endpoint to get signed URLs for both chunked and simple uploads.
+Unified endpoint to get signed URLs for chunked, simple, and thumbnail uploads.
 
 **Request:**
 ```json
 {
-  "uploadType": "chunked" | "simple",
-  "mediaType": "photo" | "video",
+  "uploadType": "chunked" | "simple" | "thumbnail",
+  "mediaType": "photo" | "video",  // Not required when uploadType is "thumbnail"
   "contentType": "image/jpeg" | "video/mp4",
   "extension": "jpg" | "mp4",
   "totalParts": 5  // Only required when uploadType is "chunked"
@@ -162,6 +162,14 @@ Unified endpoint to get signed URLs for both chunked and simple uploads.
 {
   "url": "https://s3.amazonaws.com/...",
   "key": "uploads/photo/1234567890-abc123.jpg"
+}
+```
+
+**Response for thumbnail uploads:**
+```json
+{
+  "url": "https://s3.amazonaws.com/...",
+  "key": "thumbnails/1234567890-abc123.jpg"
 }
 ```
 
@@ -188,26 +196,6 @@ Complete a multipart upload (required for chunked uploads).
   "location": "https://s3.amazonaws.com/bucket/key",
   "key": "uploads/photo/1234567890-abc123.jpg",
   "etag": "\"final-etag\""
-}
-```
-
-### POST /api/upload/thumbnail
-
-Get signed URL for thumbnail upload (optional, for videos).
-
-**Request:**
-```json
-{
-  "contentType": "image/jpeg",
-  "extension": "jpg"
-}
-```
-
-**Response:**
-```json
-{
-  "url": "https://s3.amazonaws.com/...",
-  "key": "thumbnails/1234567890-abc123.jpg"
 }
 ```
 

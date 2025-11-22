@@ -29,13 +29,13 @@ const getUploadUrl = async ({
   extension,
   totalParts,
 }: any) => {
-  // Single unified endpoint - backend handles both chunked and simple uploads
+  // Single unified endpoint - backend handles chunked, simple, and thumbnail uploads
   const response = await fetch(`${API_BASE_URL}/api/upload/url`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       uploadType,
-      mediaType,
+      mediaType, // Not required for thumbnails
       contentType,
       extension,
       totalParts, // Only used for chunked uploads
@@ -43,7 +43,7 @@ const getUploadUrl = async ({
   });
   if (!response.ok) throw new Error("Failed to get upload URL");
   return response.json();
-  // Returns { urls, key, uploadId } for chunked or { url, key } for simple
+  // Returns { urls, key, uploadId } for chunked or { url, key } for simple/thumbnail
 };
 
 const markUploadComplete = async ({ eTags, key, uploadId }: any) => {
@@ -53,16 +53,6 @@ const markUploadComplete = async ({ eTags, key, uploadId }: any) => {
     body: JSON.stringify({ eTags, key, uploadId }),
   });
   if (!response.ok) throw new Error("Failed to complete upload");
-  return response.json();
-};
-
-const getThumbnailSignedUrl = async ({ contentType, extension }: any) => {
-  const response = await fetch(`${API_BASE_URL}/api/upload/thumbnail`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contentType, extension }),
-  });
-  if (!response.ok) throw new Error("Failed to get thumbnail URL");
   return response.json();
 };
 
@@ -161,13 +151,8 @@ export default function Index() {
   };
 
   const uploadConfig: UnifiedUploadConfig = {
-    chunkThresholdBytes: 5 * 1024 * 1024, // 5MB - files >= 5MB use chunked, < 5MB use simple
     getUploadUrl,
     markUploadComplete,
-    getThumbnailSignedUrl,
-    chunkSize: 5 * 1024 * 1024, // 5MB chunks
-    concurrentFileUploadLimit: 3,
-    concurrentChunkUploadLimit: 6,
     onProgress: (fileIndex, progress) => {
       setUploadProgress((prev) => {
         const newMap = new Map(prev);

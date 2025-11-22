@@ -40,12 +40,12 @@ const BUCKET_NAME = process.env.S3_BUCKET_NAME || "your-bucket-name";
 
 /**
  * POST /api/upload/url
- * Unified endpoint to get signed URLs for both chunked and simple uploads
+ * Unified endpoint to get signed URLs for chunked, simple, and thumbnail uploads
  *
  * Request body:
  * {
- *   "uploadType": "chunked" | "simple",
- *   "mediaType": "photo" | "video",
+ *   "uploadType": "chunked" | "simple" | "thumbnail",
+ *   "mediaType": "photo" | "video" (not used for thumbnails),
  *   "contentType": "image/jpeg" | "video/mp4",
  *   "extension": "jpg" | "mp4",
  *   "totalParts": number (only for chunked uploads)
@@ -58,7 +58,7 @@ const BUCKET_NAME = process.env.S3_BUCKET_NAME || "your-bucket-name";
  *   "uploadId": string
  * }
  *
- * Response for simple:
+ * Response for simple or thumbnail:
  * {
  *   "url": string,
  *   "key": string
@@ -69,10 +69,17 @@ app.post("/api/upload/url", async (req, res) => {
     const { uploadType, mediaType, contentType, extension, totalParts } =
       req.body;
 
-    if (!uploadType || !mediaType || !contentType || !extension) {
+    if (!uploadType || !contentType || !extension) {
+      return res.status(400).json({
+        error: "Missing required fields: uploadType, contentType, extension",
+      });
+    }
+
+    // For thumbnails, we don't need mediaType
+    if (uploadType !== "thumbnail" && !mediaType) {
       return res.status(400).json({
         error:
-          "Missing required fields: uploadType, mediaType, contentType, extension",
+          "Missing required field: mediaType (not required for thumbnails)",
       });
     }
 
@@ -123,6 +130,28 @@ app.post("/api/upload/url", async (req, res) => {
         urls,
         key,
         uploadId: UploadId,
+      });
+    } else if (uploadType === "thumbnail") {
+      // Handle thumbnail upload
+      // Generate a unique key for the thumbnail
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2, 15);
+      const key = `thumbnails/${timestamp}-${randomId}.${extension}`;
+
+      const { PutObjectCommand } = require("@aws-sdk/client-s3");
+      const putObjectCommand = new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+        ContentType: contentType,
+      });
+
+      const signedUrl = await getSignedUrl(s3Client, putObjectCommand, {
+        expiresIn: 3600, // URL expires in 1 hour
+      });
+
+      res.json({
+        url: signedUrl,
+        key: key,
       });
     } else {
       // Handle simple upload
@@ -214,62 +243,6 @@ app.post("/api/upload/complete", async (req, res) => {
     console.error("Error completing multipart upload:", error);
     res.status(500).json({
       error: "Failed to complete multipart upload",
-      message: error.message,
-    });
-  }
-});
-
-/**
- * POST /api/upload/thumbnail
- * Get signed URL for thumbnail upload
- *
- * Request body:
- * {
- *   "contentType": "image/jpeg",
- *   "extension": "jpg"
- * }
- *
- * Response:
- * {
- *   "url": string,
- *   "key": string
- * }
- */
-app.post("/api/upload/thumbnail", async (req, res) => {
-  try {
-    const { contentType, extension } = req.body;
-
-    if (!contentType || !extension) {
-      return res.status(400).json({
-        error: "Missing required fields: contentType, extension",
-      });
-    }
-
-    // Generate a unique key for the thumbnail
-    const timestamp = Date.now();
-    const randomId = Math.random().toString(36).substring(2, 15);
-    const key = `thumbnails/${timestamp}-${randomId}.${extension}`;
-
-    // Create a PutObject command for direct upload
-    const { PutObjectCommand } = require("@aws-sdk/client-s3");
-    const putObjectCommand = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-      ContentType: contentType,
-    });
-
-    const signedUrl = await getSignedUrl(s3Client, putObjectCommand, {
-      expiresIn: 3600, // URL expires in 1 hour
-    });
-
-    res.json({
-      url: signedUrl,
-      key: key,
-    });
-  } catch (error) {
-    console.error("Error generating thumbnail URL:", error);
-    res.status(500).json({
-      error: "Failed to generate thumbnail URL",
       message: error.message,
     });
   }
@@ -456,9 +429,6 @@ const server = app.listen(PORT, () => {
   );
   console.log(
     `  POST http://localhost:${PORT}/api/upload/complete - Complete multipart upload`
-  );
-  console.log(
-    `  POST http://localhost:${PORT}/api/upload/thumbnail - Get thumbnail upload URL`
   );
   console.log(
     `  GET  http://localhost:${PORT}/api/files - List all uploaded files`

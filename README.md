@@ -68,7 +68,7 @@ const uploadConfig: UnifiedUploadConfig = {
   // Files >= this size will use chunked upload, files < this size will use simple upload
   chunkThresholdBytes: 5 * 1024 * 1024, // 5MB
 
-  // Required: Unified function to get signed URLs for both chunked and simple uploads
+  // Required: Unified function to get signed URLs for chunked, simple, and thumbnail uploads
   getUploadUrl: async ({
     uploadType,
     mediaType,
@@ -80,8 +80,8 @@ const uploadConfig: UnifiedUploadConfig = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        uploadType, // "chunked" or "simple"
-        mediaType,
+        uploadType, // "chunked", "simple", or "thumbnail"
+        mediaType, // Not required for thumbnails
         contentType,
         extension,
         totalParts, // Only used when uploadType is "chunked"
@@ -89,7 +89,7 @@ const uploadConfig: UnifiedUploadConfig = {
     });
     if (!response.ok) throw new Error("Failed to get upload URL");
     return response.json();
-    // Returns { urls, key, uploadId } for chunked or { url, key } for simple
+    // Returns { urls, key, uploadId } for chunked or { url, key } for simple/thumbnail
   },
 
   // Required: Function to mark chunked upload as complete
@@ -101,18 +101,6 @@ const uploadConfig: UnifiedUploadConfig = {
     });
     if (!response.ok) throw new Error("Failed to complete upload");
     return response.json();
-  },
-
-  // Optional: For video thumbnail uploads
-  getThumbnailSignedUrl: async ({ contentType, extension }) => {
-    const response = await fetch("/api/upload/thumbnail", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contentType, extension }),
-    });
-    if (!response.ok) throw new Error("Failed to get thumbnail URL");
-    const data = await response.json();
-    return { url: data.url, key: data.key };
   },
 
   // Optional: Progress callbacks
@@ -221,9 +209,8 @@ Uploads one or more files, automatically selecting chunked or simple upload base
 Configuration object for unified uploads.
 
 - `chunkThresholdBytes` (optional): File size threshold in bytes. Files >= this size use chunked upload, files < this size use simple upload. Default: 5MB (5 _ 1024 _ 1024)
-- `getUploadUrl` (required): Unified function to get signed URLs for both chunked and simple uploads. The library calls this with `uploadType: "chunked"` or `uploadType: "simple"` based on file size.
+- `getUploadUrl` (required): Unified function to get signed URLs for chunked, simple, and thumbnail uploads. The library calls this with `uploadType: "chunked"`, `uploadType: "simple"`, or `uploadType: "thumbnail"` as needed.
 - `markUploadComplete` (required): Function to complete chunked multipart uploads
-- `getThumbnailSignedUrl` (optional): Function to get signed URL for video thumbnails
 - `onProgress` (optional): Callback for per-file progress updates
 - `onTotalProgress` (optional): Callback for overall progress across all files
 - `chunkSize` (optional): Size of each chunk in bytes (default: 5MB)
@@ -303,7 +290,6 @@ Your backend needs to provide the following endpoints:
 
 **Optional:**
 
-- **POST /api/upload/thumbnail** - Get signed URL for thumbnail upload (for videos)
 
 See the example backend in `example/backend/` for a complete implementation using AWS S3 and LocalStack.
 
