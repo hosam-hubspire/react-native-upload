@@ -576,32 +576,6 @@ async function uploadMultipleFiles(
 
     const uploadedFiles = uploadResponse.flat();
 
-    // Calculate total progress if callback provided
-    if (config.onTotalProgress) {
-      const totalBytes = files.reduce((sum, file) => sum + file.fileSize, 0);
-      const fileSizeMap = new Map(
-        files.map((file) => [file.fileIndex, file.fileSize])
-      );
-      const totalUploadedBytes = uploadedFiles.reduce(
-        (sum: number, file: UploadFileResult) => {
-          // This is a simplified calculation - in a real scenario you'd track bytes per file
-          const fileSize = fileSizeMap.get(file.fileIndex) || 0;
-          return sum + (file.status === "failed" ? 0 : fileSize);
-        },
-        0
-      );
-
-      const overallPercentComplete =
-        totalBytes > 0
-          ? Math.min(Math.ceil((totalUploadedBytes / totalBytes) * 100), 100)
-          : 0;
-
-      config.onTotalProgress({
-        overallPercentComplete,
-        totalUploadedBytes,
-      });
-    }
-
     return uploadedFiles;
   } catch (e: any) {
     throw new Error(`Media upload error: ${e?.message || String(e)}`);
@@ -839,9 +813,51 @@ export async function uploadFiles(
   const results: UploadFileResult[] = [];
   const resultMap = new Map<number, UploadFileResult>();
 
+  // Track progress for all files to calculate overall progress
+  const progressMap = new Map<number, UploadProgress>();
+  const totalBytes = files.reduce((sum, file) => sum + file.fileSize, 0);
+
+  // Wrapper for onProgress that includes overall progress
+  const wrappedOnProgress = config.onProgress
+    ? (progress: UploadProgress) => {
+        // Update progress map for this file
+        progressMap.set(progress.fileIndex, progress);
+
+        // Calculate overall progress
+        const totalUploadedBytes = Array.from(progressMap.values()).reduce(
+          (sum, p) => {
+            if (p.status === "failed") return sum;
+            return sum + (p.uploadedBytes || 0);
+          },
+          0
+        );
+
+        const overallPercentComplete =
+          totalBytes > 0
+            ? Math.min(Math.ceil((totalUploadedBytes / totalBytes) * 100), 100)
+            : 0;
+
+        // Call original callback with overall progress included
+        config.onProgress!({
+          ...progress,
+          overallPercentComplete,
+          totalUploadedBytes,
+        });
+      }
+    : undefined;
+
+  // Create config with wrapped callback
+  const configWithOverallProgress: UnifiedUploadConfig = {
+    ...config,
+    onProgress: wrappedOnProgress,
+  };
+
   // Upload chunked files
   if (chunkedFiles.length > 0) {
-    const chunkedResults = await uploadMultipleFiles(chunkedFiles, config);
+    const chunkedResults = await uploadMultipleFiles(
+      chunkedFiles,
+      configWithOverallProgress
+    );
     chunkedResults.forEach((result) => {
       resultMap.set(result.fileIndex, result);
     });
@@ -877,7 +893,7 @@ export async function uploadFiles(
     const simpleUploadData = simpleFileData.map((data) => ({
       file: data.file,
       signedUrl: data.signedUrl,
-      onProgress: config.onProgress,
+      onProgress: wrappedOnProgress,
     }));
 
     const concurrentLimit =
@@ -988,26 +1004,6 @@ export async function uploadFiles(
       });
     }
   });
-
-  // Calculate overall progress if callback provided
-  if (config.onTotalProgress) {
-    const totalBytes = files.reduce((sum, file) => sum + file.fileSize, 0);
-    const totalUploadedBytes = results.reduce((sum, result) => {
-      const file = files.find((f) => f.fileIndex === result.fileIndex);
-      if (!file) return sum;
-      return sum + (result.status === "failed" ? 0 : file.fileSize);
-    }, 0);
-
-    const overallPercentComplete =
-      totalBytes > 0
-        ? Math.min(Math.ceil((totalUploadedBytes / totalBytes) * 100), 100)
-        : 0;
-
-    config.onTotalProgress({
-      overallPercentComplete,
-      totalUploadedBytes,
-    });
-  }
 
   return results;
 }

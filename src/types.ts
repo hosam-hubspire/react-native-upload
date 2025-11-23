@@ -19,6 +19,10 @@ export interface UploadProgress {
   totalBytes?: number;
   /** Error message or Error object if upload failed */
   error?: string | Error;
+  /** Overall progress percentage across all files (0-100) */
+  overallPercentComplete?: number;
+  /** Total bytes uploaded across all files */
+  totalUploadedBytes?: number;
 }
 
 /**
@@ -142,17 +146,9 @@ export interface UnifiedUploadConfig {
   }) => Promise<any>;
   /**
    * Optional callback for per-file progress updates.
+   * The progress object includes both per-file and overall progress information.
    *
-   * @param progress - Progress information for this file (includes fileIndex)
+   * @param progress - Progress information for this file (includes fileIndex, overallPercentComplete, totalUploadedBytes)
    */
   onProgress?: (progress: UploadProgress) => void;
-  /**
-   * Optional callback for overall progress across all files.
-   *
-   * @param progress - Overall progress information
-   */
-  onTotalProgress?: (progress: {
-    overallPercentComplete: number;
-    totalUploadedBytes: number;
-  }) => void;
 }

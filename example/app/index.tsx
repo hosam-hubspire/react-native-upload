@@ -155,10 +155,9 @@ export default function Index() {
         });
         return newMap;
       });
-    },
-    onTotalProgress: (progress) => {
-      // Update overall progress across all files
-      setOverallProgress(progress.overallPercentComplete);
+      if (progress.overallPercentComplete !== undefined) {
+        setOverallProgress(progress.overallPercentComplete);
+      }
     },
   };
 

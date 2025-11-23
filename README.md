@@ -103,15 +103,14 @@ const uploadConfig: UnifiedUploadConfig = {
     return response.json();
   },
 
-  // Optional: Progress callbacks
+  // Optional: Progress callback (includes both per-file and overall progress)
   onProgress: (progress) => {
     console.log(`File ${progress.fileIndex}: ${progress.percentComplete}%`);
+    console.log(`Overall: ${progress.overallPercentComplete}%`);
     // progress includes: fileIndex, status, percentComplete, uploadedBytes, totalBytes, error
+    // Also includes: overallPercentComplete, totalUploadedBytes (overall progress across all files)
     // status: "uploading" | "completed" | "failed"
     // error: string | Error (only present if status === "failed")
-  },
-  onTotalProgress: (progress) => {
-    console.log(`Overall: ${progress.overallPercentComplete}%`);
   },
 
   // Optional: Configuration
@@ -213,8 +212,7 @@ Configuration object for unified uploads.
 - `chunkThresholdBytes` (optional): File size threshold in bytes. Files >= this size use chunked upload, files < this size use simple upload. Default: 5MB (5 _ 1024 _ 1024)
 - `getUploadUrl` (required): Unified function to get signed URLs for chunked, simple, and thumbnail uploads. The library calls this with `uploadType: "chunked"`, `uploadType: "simple"`, or `uploadType: "thumbnail"` as needed.
 - `markUploadComplete` (required): Function to complete chunked multipart uploads
-- `onProgress` (optional): Callback for per-file progress updates. Receives `UploadProgress` object (includes `fileIndex` and `status`)
-- `onTotalProgress` (optional): Callback for overall progress across all files
+- `onProgress` (optional): Callback for per-file progress updates. Receives `UploadProgress` object that includes both per-file progress (`fileIndex`, `status`, `percentComplete`, etc.) and overall progress (`overallPercentComplete`, `totalUploadedBytes`) across all files
 - `chunkSize` (optional): Size of each chunk in bytes (default: 5MB)
 - `concurrentFileUploadLimit` (optional): Max concurrent file uploads (default: 3)
 - `concurrentChunkUploadLimit` (optional): Max concurrent chunk uploads (default: 6)
@@ -257,6 +255,8 @@ Progress information for a file upload.
 - `uploadedBytes` (optional): Bytes uploaded so far
 - `totalBytes` (optional): Total file size
 - `error` (optional): Error message or Error object if upload failed
+- `overallPercentComplete` (optional): Overall progress percentage across all files (0-100)
+- `totalUploadedBytes` (optional): Total bytes uploaded across all files
 
 ## Example App
 
