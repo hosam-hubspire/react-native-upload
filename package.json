@@ -1,5 +1,5 @@
 {
-  "name": "@hubspire/react-native-chunk-upload",
+  "name": "@hubspire/react-native-upload",
   "version": "1.0.4",
   "description": "A generalized React Native package for chunked file uploads with progress tracking",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hosam-hubspire/react-native-chunk-upload.git"
+    "url": "https://github.com/hosam-hubspire/react-native-upload.git"
   },
   "publishConfig": {
     "access": "public"

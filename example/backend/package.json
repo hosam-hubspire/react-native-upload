@@ -1,7 +1,7 @@
 {
   "name": "@example/backend",
   "version": "1.0.0",
-  "description": "Backend API for react-native-chunk-upload example",
+  "description": "Backend API for react-native-upload example",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

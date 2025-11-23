@@ -1,6 +1,6 @@
 # Backend API for Chunked Upload Example
 
-This is a Node.js/Express backend that provides AWS S3 multipart upload APIs for the React Native `react-native-chunk-upload` example app. It supports both AWS S3 (production) and LocalStack (local development).
+This is a Node.js/Express backend that provides AWS S3 multipart upload APIs for the React Native `react-native-upload` example app. It supports both AWS S3 (production) and LocalStack (local development).
 
 ## Features
 

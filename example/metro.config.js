@@ -14,7 +14,7 @@ config.resolver.nodeModulesPaths = [
 ];
 
 config.resolver.extraNodeModules = {
-  "@hubspire/react-native-chunk-upload": "..",
+  "@hubspire/react-native-upload": "..",
 };
 
 module.exports = config;

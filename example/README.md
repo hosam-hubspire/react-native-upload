@@ -1,6 +1,6 @@
 # Chunked Upload Example
 
-This is an example React Native app demonstrating the `react-native-chunk-upload` package with an AWS S3 backend server and LocalStack support for local development.
+This is an example React Native app demonstrating the `react-native-upload` package with an AWS S3 backend server and LocalStack support for local development.
 
 ## Structure
 

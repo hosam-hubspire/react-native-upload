@@ -1,4 +1,4 @@
-# react-native-chunk-upload
+# react-native-upload
 
 A generalized React Native package for file uploads with automatic chunking. This package automatically switches between chunked multipart uploads (for large files) and simple uploads (for smaller files) based on file size, supports concurrent uploads, and provides detailed progress callbacks.
 
@@ -16,11 +16,11 @@ A generalized React Native package for file uploads with automatic chunking. Thi
 ## Installation
 
 ```bash
-npm install @hubspire/react-native-chunk-upload
+npm install @hubspire/react-native-upload
 # or
-yarn add @hubspire/react-native-chunk-upload
+yarn add @hubspire/react-native-upload
 # or
-bun add @hubspire/react-native-chunk-upload
+bun add @hubspire/react-native-upload
 ```
 
 ## Peer Dependencies
@@ -60,7 +60,7 @@ import {
   uploadFiles,
   UnifiedUploadConfig,
   FileUploadConfig,
-} from "@hubspire/react-native-chunk-upload";
+} from "@hubspire/react-native-upload";
 
 // Configure your upload
 const uploadConfig: UnifiedUploadConfig = {
