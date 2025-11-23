@@ -15,6 +15,9 @@ const DEFAULT_CONCURRENT_CHUNK_UPLOAD_LIMIT = 6;
 const DEFAULT_MAX_FILE_SIZE_MB = 4096;
 const DEFAULT_CHUNK_THRESHOLD_BYTES = 5 * 1024 * 1024; // 5MB
 
+// Global counter for file indexing (handles concurrent uploads)
+let nextFileIndex = 0;
+
 /**
  * Updates the upload progress for a chunked upload and calls the progress callback.
  *
@@ -138,7 +141,7 @@ async function readAndUploadFileAsChunks({
   contentType,
   extension,
   config,
-}: FileUploadConfig & {
+}: (FileUploadConfig & { fileIndex: number }) & {
   partSize: number;
   totalParts: number;
   config: UnifiedUploadConfig;
@@ -390,7 +393,7 @@ async function readAndUploadFileAsChunks({
  * ```
  */
 async function uploadFile(
-  fileConfig: FileUploadConfig,
+  fileConfig: FileUploadConfig & { fileIndex: number },
   config: UnifiedUploadConfig
 ): Promise<UploadFileResult> {
   const { fileIndex, fileSize, mediaType } = fileConfig;
@@ -559,7 +562,7 @@ async function uploadFile(
  * ```
  */
 async function uploadMultipleFiles(
-  files: FileUploadConfig[],
+  files: (FileUploadConfig & { fileIndex: number })[],
   config: UnifiedUploadConfig
 ): Promise<UploadFileResult[]> {
   if (!files.length) return [];
@@ -570,7 +573,8 @@ async function uploadMultipleFiles(
   try {
     const uploadResponse = await mapConcurrent(
       files,
-      (file: FileUploadConfig) => uploadFile(file, config),
+      (file: FileUploadConfig & { fileIndex: number }) =>
+        uploadFile(file, config),
       concurrentFileLimit
     );
 
@@ -593,11 +597,11 @@ async function uploadMultipleFiles(
  * @returns Promise resolving to the upload response with status, headers, and body
  */
 async function uploadSimpleFile(
-  fileConfig: FileUploadConfig,
+  fileConfig: FileUploadConfig & { fileIndex: number },
   signedUrl: string,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<{ status: number; headers: Record<string, string>; body: string }> {
-  const { filePath } = fileConfig;
+  const { filePath, fileSize } = fileConfig;
 
   try {
     // Read file as bytes
@@ -607,6 +611,15 @@ async function uploadSimpleFile(
     // Use XMLHttpRequest only if progress tracking is needed
     // (fetch doesn't support upload progress)
     if (onProgress) {
+      // Set initial progress (0%) before starting upload
+      onProgress({
+        fileIndex: fileConfig.fileIndex,
+        percentComplete: 0,
+        uploadedBytes: 0,
+        totalBytes: fileSize || fileBytes.length,
+        status: "uploading",
+      });
+
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
 
@@ -626,6 +639,17 @@ async function uploadSimpleFile(
 
         xhr.addEventListener("load", () => {
           if (xhr.status === 200) {
+            // Ensure progress is set to 100% on completion (fallback if progress event didn't fire)
+            if (onProgress) {
+              onProgress({
+                fileIndex: fileConfig.fileIndex,
+                percentComplete: 100,
+                uploadedBytes: fileSize || fileBytes.length,
+                totalBytes: fileSize || fileBytes.length,
+                status: "completed",
+              });
+            }
+
             // Convert headers to object
             const headers: Record<string, string> = {};
             const headerLines = xhr
@@ -650,10 +674,30 @@ async function uploadSimpleFile(
         });
 
         xhr.addEventListener("error", () => {
+          if (onProgress) {
+            onProgress({
+              fileIndex: fileConfig.fileIndex,
+              percentComplete: 0,
+              uploadedBytes: 0,
+              totalBytes: fileSize || fileBytes.length,
+              status: "failed",
+              error: "Upload failed",
+            });
+          }
           reject(new Error("Upload failed"));
         });
 
         xhr.addEventListener("abort", () => {
+          if (onProgress) {
+            onProgress({
+              fileIndex: fileConfig.fileIndex,
+              percentComplete: 0,
+              uploadedBytes: 0,
+              totalBytes: fileSize || fileBytes.length,
+              status: "failed",
+              error: "Upload aborted",
+            });
+          }
           reject(new Error("Upload aborted"));
         });
 
@@ -723,7 +767,7 @@ async function uploadSimpleFile(
  */
 async function uploadMultipleSimpleFiles(
   files: Array<{
-    file: FileUploadConfig;
+    file: FileUploadConfig & { fileIndex: number };
     signedUrl: string;
     onProgress?: (progress: UploadProgress) => void;
   }>,
@@ -795,14 +839,22 @@ export async function uploadFiles(
 ): Promise<UploadFileResult[]> {
   if (!files.length) return [];
 
+  // Auto-assign fileIndex for all files (handles concurrent uploads)
+  // fileIndex is internal only - not part of the public API
+  const filesWithIndices: (FileUploadConfig & { fileIndex: number })[] =
+    files.map((file) => ({
+      ...file,
+      fileIndex: nextFileIndex++,
+    }));
+
   const chunkThreshold =
     config.chunkThresholdBytes ?? DEFAULT_CHUNK_THRESHOLD_BYTES;
 
   // Separate files into chunked and simple upload groups
-  const chunkedFiles: FileUploadConfig[] = [];
-  const simpleFiles: FileUploadConfig[] = [];
+  const chunkedFiles: (FileUploadConfig & { fileIndex: number })[] = [];
+  const simpleFiles: (FileUploadConfig & { fileIndex: number })[] = [];
 
-  files.forEach((file) => {
+  filesWithIndices.forEach((file) => {
     if (file.fileSize >= chunkThreshold) {
       chunkedFiles.push(file);
     } else {
@@ -815,7 +867,10 @@ export async function uploadFiles(
 
   // Track progress for all files to calculate overall progress
   const progressMap = new Map<number, UploadProgress>();
-  const totalBytes = files.reduce((sum, file) => sum + file.fileSize, 0);
+  const totalBytes = filesWithIndices.reduce(
+    (sum, file) => sum + file.fileSize,
+    0
+  );
 
   // Wrapper for onProgress that includes overall progress
   const wrappedOnProgress = config.onProgress
@@ -990,7 +1045,7 @@ export async function uploadFiles(
   }
 
   // Return results in the same order as input files
-  files.forEach((file) => {
+  filesWithIndices.forEach((file) => {
     const result = resultMap.get(file.fileIndex);
     if (result) {
       results.push(result);

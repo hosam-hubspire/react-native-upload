@@ -85,10 +85,14 @@ async function downloadAllFiles() {
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return "0 Bytes";
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
+  // Use decimal (1000-based) to match gallery/file system display
+  const k = 1000;
+  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+  const size = bytes / Math.pow(k, i);
+  // Format with 1 decimal place to match gallery display
+  const formatted = size.toFixed(1).replace(/\.?0+$/, "");
+  return formatted + " " + sizes[i];
 }
 
 downloadAllFiles();

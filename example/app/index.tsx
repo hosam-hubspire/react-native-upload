@@ -4,7 +4,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  ScrollView,
   Alert,
   Platform,
 } from "react-native";
@@ -15,6 +14,7 @@ import {
   FileUploadConfig,
   UploadProgress,
 } from "@hubspire/react-native-upload";
+import { UploadMediaList } from "@/components/UploadMediaList";
 
 // Configuration - Update this to match your backend URL
 const API_BASE_URL = __DEV__
@@ -87,7 +87,7 @@ export default function Index() {
           asset.type === "video" ? `video/${extension}` : `image/${extension}`;
 
         return {
-          fileIndex: 0, // Will be set correctly in the functional update
+          // fileIndex is automatically assigned by the package
           filePath: asset.uri,
           fileSize: asset.fileSize || 0,
           mediaType: asset.type === "video" ? "video" : "photo",
@@ -96,15 +96,8 @@ export default function Index() {
         };
       });
 
-      // Use functional update to ensure correct fileIndex based on current state
-      setSelectedFiles((prev) => {
-        // Calculate indices based on the current state at the time of update
-        const filesWithCorrectIndices = files.map((file, index) => ({
-          ...file,
-          fileIndex: prev.length + index,
-        }));
-        return [...prev, ...filesWithCorrectIndices];
-      });
+      // Add files to selected files (fileIndex will be auto-assigned by the package)
+      setSelectedFiles((prev) => [...prev, ...files]);
     }
   };
 
@@ -126,18 +119,16 @@ export default function Index() {
       const contentType =
         asset.type === "video" ? `video/${extension}` : `image/${extension}`;
 
-      // Use functional update to ensure correct fileIndex based on current state
-      setSelectedFiles((prev) => {
-        const file: FileUploadConfig = {
-          fileIndex: prev.length,
-          filePath: asset.uri,
-          fileSize: asset.fileSize || 0,
-          mediaType: asset.type === "video" ? "video" : "photo",
-          contentType,
-          extension,
-        };
-        return [...prev, file];
-      });
+      // Add file to selected files (fileIndex will be auto-assigned by the package)
+      const file: FileUploadConfig = {
+        // fileIndex is automatically assigned by the package
+        filePath: asset.uri,
+        fileSize: asset.fileSize || 0,
+        mediaType: asset.type === "video" ? "video" : "photo",
+        contentType,
+        extension,
+      };
+      setSelectedFiles((prev) => [...prev, file]);
     }
   };
 
@@ -255,55 +246,24 @@ export default function Index() {
     setUploadResults([]);
   };
 
-  const removeFile = (index: number) => {
-    setSelectedFiles(selectedFiles.filter((_, i) => i !== index));
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
-  };
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Chunked Upload Example</Text>
-      <Text style={styles.subtitle}>{`Backend: ${API_BASE_URL}`}</Text>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Chunked Upload Example</Text>
+        <Text style={styles.subtitle}>{`Backend: ${API_BASE_URL}`}</Text>
 
-      <View style={styles.buttonRow}>
-        <TouchableOpacity style={styles.button} onPress={pickImage}>
-          <Text style={styles.buttonText}>Pick from Library</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.button} onPress={pickCamera}>
-          <Text style={styles.buttonText}>Take Photo/Video</Text>
-        </TouchableOpacity>
+        <View style={styles.buttonRow}>
+          <TouchableOpacity style={styles.button} onPress={pickImage}>
+            <Text style={styles.buttonText}>Pick from Library</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={pickCamera}>
+            <Text style={styles.buttonText}>Take Photo/Video</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {selectedFiles.length > 0 && (
-        <>
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>
-              Selected Files ({selectedFiles.length})
-            </Text>
-            {selectedFiles.map((file, index) => (
-              <View key={index} style={styles.fileItem}>
-                <View style={styles.fileInfo}>
-                  <Text style={styles.fileName}>
-                    {file.mediaType} - {formatFileSize(file.fileSize)}
-                  </Text>
-                  <Text style={styles.filePath}>
-                    {file.filePath.split("/").pop()}
-                  </Text>
-                </View>
-                <TouchableOpacity onPress={() => removeFile(index)}>
-                  <Text style={styles.removeButton}>×</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
-
+        <View style={styles.buttonContainer}>
           <TouchableOpacity
             style={[
               styles.uploadButton,
@@ -320,61 +280,33 @@ export default function Index() {
           <TouchableOpacity style={styles.clearButton} onPress={clearFiles}>
             <Text style={styles.clearButtonText}>Clear All</Text>
           </TouchableOpacity>
-        </>
-      )}
-
-      {overallProgress > 0 && (
-        <View style={styles.progressSection}>
-          <Text style={styles.sectionTitle}>Overall Progress</Text>
-          <View style={styles.progressBar}>
-            <View
-              style={[styles.progressFill, { width: `${overallProgress}%` }]}
-            />
-          </View>
-          <Text style={styles.progressText}>
-            {Math.round(overallProgress)}%
-          </Text>
         </View>
       )}
 
-      {uploadProgress.size > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>File Progress</Text>
-          {Array.from(uploadProgress.values()).map((progress) => (
-            <View key={progress.fileIndex} style={styles.progressItem}>
-              <Text style={styles.progressLabel}>
-                File {progress.fileIndex + 1}:{" "}
-                {Math.round(progress.percentComplete || 0)}%
-              </Text>
-              <View style={styles.progressBar}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    {
-                      width: `${progress.percentComplete || 0}%`,
-                      backgroundColor:
-                        progress.status === "failed"
-                          ? "#ff4444"
-                          : progress.status === "completed"
-                          ? "#44ff44"
-                          : "#4444ff",
-                    },
-                  ]}
-                />
-              </View>
-              {progress.status === "failed" && (
-                <Text style={styles.errorText}>
-                  {typeof progress.error === "string"
+      {/* Use UploadMediaList component for gallery-style display */}
+      {selectedFiles.length > 0 && (
+        <View style={styles.mediaListContainer}>
+          <UploadMediaList
+            files={selectedFiles}
+            progressMap={uploadProgress}
+            overallProgress={overallProgress}
+            numColumns={3}
+            onItemPress={(fileIndex, file) => {
+              const progress = uploadProgress.get(fileIndex);
+              if (progress?.status === "failed" && progress.error) {
+                Alert.alert(
+                  "Upload Failed",
+                  typeof progress.error === "string"
                     ? progress.error
-                    : progress.error?.message || "Upload failed"}
-                </Text>
-              )}
-            </View>
-          ))}
+                    : progress.error?.message || "Upload failed"
+                );
+              }
+            }}
+          />
         </View>
       )}
 
-      {uploadResults.length > 0 && (
+      {/* {uploadResults.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Upload Results</Text>
           {uploadResults.map((result, index) => (
@@ -401,8 +333,8 @@ export default function Index() {
             </View>
           ))}
         </View>
-      )}
-    </ScrollView>
+      )} */}
+    </View>
   );
 }
 
@@ -411,8 +343,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
   },
-  content: {
+  header: {
     padding: 20,
+    paddingBottom: 10,
   },
   title: {
     fontSize: 24,
@@ -455,11 +388,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   clearButton: {
+    flex: 1,
     backgroundColor: "#FF3B30",
     padding: 15,
     borderRadius: 8,
     alignItems: "center",
-    marginTop: 10,
   },
   clearButtonText: {
     color: "#fff",
@@ -545,5 +478,14 @@ const styles = StyleSheet.create({
   resultText: {
     fontSize: 14,
     flexWrap: "wrap",
+  },
+  mediaListContainer: {
+    flex: 1,
+  },
+  buttonContainer: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 20,
+    paddingHorizontal: 20,
   },
 });

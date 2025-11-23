@@ -121,9 +121,9 @@ const uploadConfig: UnifiedUploadConfig = {
 };
 
 // Upload a single file (always pass as array)
+// fileIndex is automatically assigned by the package (not part of FileUploadConfig)
 const files: FileUploadConfig[] = [
   {
-    fileIndex: 0,
     filePath: "/path/to/file.jpg",
     fileSize: 1024 * 1024 * 10, // 10MB - will use chunked upload (>= 5MB threshold)
     mediaType: "photo",
@@ -136,9 +136,9 @@ const results = await uploadFiles(files, uploadConfig);
 console.log("Upload result:", results[0]);
 
 // Upload multiple files (mixed sizes)
+// fileIndex is automatically assigned by the package
 const multipleFiles: FileUploadConfig[] = [
   {
-    fileIndex: 0,
     filePath: "/path/to/small-image.jpg",
     fileSize: 1024 * 1024 * 2, // 2MB - will use simple upload (< 5MB threshold)
     mediaType: "photo",
@@ -146,7 +146,6 @@ const multipleFiles: FileUploadConfig[] = [
     extension: "jpg",
   },
   {
-    fileIndex: 1,
     filePath: "/path/to/large-video.mp4",
     fileSize: 1024 * 1024 * 50, // 50MB - will use chunked upload (>= 5MB threshold)
     mediaType: "video",
@@ -166,8 +165,8 @@ The package automatically generates thumbnails for videos if `expo-video-thumbna
 
 ```typescript
 // Thumbnail will be auto-generated if expo-video-thumbnails is installed
+// fileIndex is automatically assigned by the package
 const videoFile: FileUploadConfig = {
-  fileIndex: 0,
   filePath: videoUri,
   fileSize: videoSize,
   mediaType: "video",
@@ -222,7 +221,6 @@ Configuration object for unified uploads.
 
 Configuration for a single file upload.
 
-- `fileIndex`: Unique index identifier for this file
 - `filePath`: Local file path to upload
 - `fileSize`: File size in bytes
 - `mediaType`: 'photo' or 'video'
@@ -257,6 +255,55 @@ Progress information for a file upload.
 - `error` (optional): Error message or Error object if upload failed
 - `overallPercentComplete` (optional): Overall progress percentage across all files (0-100)
 - `totalUploadedBytes` (optional): Total bytes uploaded across all files
+
+## UI Component
+
+The package includes a ready-to-use React Native component for displaying upload progress:
+
+### `UploadMediaList`
+
+A gallery-style component that displays media items in a grid with individual progress indicators and an overall progress bar.
+
+```typescript
+import { UploadMediaList, uploadFiles, FileUploadConfig, UploadProgress } from "@hubspire/react-native-upload";
+
+const [files, setFiles] = useState<FileUploadConfig[]>([]);
+const [progressMap, setProgressMap] = useState<Map<number, UploadProgress>>(new Map());
+const [overallProgress, setOverallProgress] = useState(0);
+
+// Update progress in onProgress callback
+const config: UnifiedUploadConfig = {
+  // ... other config
+  onProgress: (progress) => {
+    setProgressMap((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(progress.fileIndex, progress);
+      return newMap;
+    });
+    if (progress.overallPercentComplete !== undefined) {
+      setOverallProgress(progress.overallPercentComplete);
+    }
+  },
+};
+
+// Use the component
+<UploadMediaList
+  files={files}
+  progressMap={progressMap}
+  overallProgress={overallProgress}
+  numColumns={3}
+  onItemPress={(fileIndex, file) => {
+    console.log("Pressed file:", fileIndex, file);
+  }}
+/>
+```
+
+**Props:**
+- `files`: Array of `FileUploadConfig` objects
+- `progressMap`: Map of `fileIndex` to `UploadProgress` (update in `onProgress` callback)
+- `overallProgress`: Overall progress percentage (0-100)
+- `numColumns` (optional): Number of columns in grid (default: 3)
+- `onItemPress` (optional): Callback when a media item is pressed
 
 ## Example App
 

@@ -1,6 +1,6 @@
 {
   "name": "@hubspire/react-native-upload",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "A generalized React Native package for chunked file uploads with progress tracking",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -36,6 +36,8 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/react": "^19.2.6",
+    "@types/react-native": "^0.73.0",
     "typescript": "^5.9.2"
   },
   "files": [
