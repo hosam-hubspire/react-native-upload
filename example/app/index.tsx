@@ -172,12 +172,7 @@ export default function Index() {
     onProgress: (progress) => {
       setUploadProgress((prev) => {
         const newMap = new Map(prev);
-        newMap.set(progress.fileIndex, {
-          ...progress,
-          percentComplete: progress.percentComplete || 0,
-          uploadedBytes: progress.uploadedBytes || 0,
-          totalBytes: progress.totalBytes || 0,
-        });
+        newMap.set(progress.fileIndex, progress);
         return newMap;
       });
       if (progress.overallPercentComplete !== undefined) {
