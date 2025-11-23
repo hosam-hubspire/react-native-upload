@@ -11,7 +11,7 @@ import * as ImagePicker from "expo-image-picker";
 import {
   uploadFiles,
   UnifiedUploadConfig,
-  FileUploadConfig,
+  FileConfig,
   UploadProgress,
   generateVideoThumbnail,
 } from "@hubspire/react-native-upload";
@@ -59,7 +59,7 @@ const markUploadComplete = async ({ eTags, key, uploadId }: any) => {
 };
 
 export default function Index() {
-  const [selectedFiles, setSelectedFiles] = useState<FileUploadConfig[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<FileConfig[]>([]);
   const [uploadProgress, setUploadProgress] = useState<
     Map<number, UploadProgress>
   >(new Map());
@@ -82,7 +82,7 @@ export default function Index() {
 
     if (!result.canceled && result.assets) {
       // Process assets and generate thumbnails for videos
-      const files: FileUploadConfig[] = await Promise.all(
+      const files: FileConfig[] = await Promise.all(
         result.assets.map(async (asset) => {
           const extension = asset.uri.split(".").pop()?.toLowerCase() || "jpg";
           const contentType =
@@ -90,7 +90,7 @@ export default function Index() {
               ? `video/${extension}`
               : `image/${extension}`;
 
-          const file: FileUploadConfig = {
+          const file: FileConfig = {
             // fileIndex is automatically assigned by the package
             filePath: asset.uri,
             fileSize: asset.fileSize || 0,
@@ -140,7 +140,7 @@ export default function Index() {
         asset.type === "video" ? `video/${extension}` : `image/${extension}`;
 
       // Add file to selected files (fileIndex will be auto-assigned by the package)
-      const file: FileUploadConfig = {
+      const file: FileConfig = {
         // fileIndex is automatically assigned by the package
         filePath: asset.uri,
         fileSize: asset.fileSize || 0,

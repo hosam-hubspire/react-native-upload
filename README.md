@@ -59,7 +59,7 @@ The package provides a single unified `uploadFiles` function that automatically 
 import {
   uploadFiles,
   UnifiedUploadConfig,
-  FileUploadConfig,
+  FileConfig,
 } from "@hubspire/react-native-upload";
 
 // Configure your upload
@@ -121,8 +121,8 @@ const uploadConfig: UnifiedUploadConfig = {
 };
 
 // Upload a single file (always pass as array)
-// fileIndex is automatically assigned by the package (not part of FileUploadConfig)
-const files: FileUploadConfig[] = [
+// fileIndex is automatically assigned by the package (not part of FileConfig)
+const files: FileConfig[] = [
   {
     filePath: "/path/to/file.jpg",
     fileSize: 1024 * 1024 * 10, // 10MB - will use chunked upload (>= 5MB threshold)
@@ -137,7 +137,7 @@ console.log("Upload result:", results[0]);
 
 // Upload multiple files (mixed sizes)
 // fileIndex is automatically assigned by the package
-const multipleFiles: FileUploadConfig[] = [
+const multipleFiles: FileConfig[] = [
   {
     filePath: "/path/to/small-image.jpg",
     fileSize: 1024 * 1024 * 2, // 2MB - will use simple upload (< 5MB threshold)
@@ -170,11 +170,11 @@ Generate thumbnails immediately when videos are selected to use them for preview
 ```typescript
 import {
   generateVideoThumbnail,
-  FileUploadConfig,
+  FileConfig,
 } from "@hubspire/react-native-upload";
 
 // When selecting videos
-const videoFile: FileUploadConfig = {
+const videoFile: FileConfig = {
   filePath: videoUri,
   fileSize: videoSize,
   mediaType: "video",
@@ -205,7 +205,7 @@ If you don't provide `thumbnailPath`, the package will automatically generate it
 ```typescript
 // Thumbnail will be auto-generated during upload if expo-video-thumbnails is installed
 // fileIndex is automatically assigned by the package
-const videoFile: FileUploadConfig = {
+const videoFile: FileConfig = {
   filePath: videoUri,
   fileSize: videoSize,
   mediaType: "video",
@@ -233,7 +233,7 @@ Uploads one or more files, automatically selecting chunked or simple upload base
 
 **Parameters:**
 
-- `files` (required): Array of `FileUploadConfig` objects. Always pass an array, even for a single file.
+- `files` (required): Array of `FileConfig` objects. Always pass an array, even for a single file.
 - `config` (required): `UnifiedUploadConfig` object with all required callbacks and optional settings.
 
 **Returns:** `Promise<UploadFileResult[]>` - Array of upload results, one per file, in the same order as input.
@@ -271,7 +271,7 @@ const thumbnailPath = await generateVideoThumbnail(videoUri, {
 
 if (thumbnailPath) {
   // Use thumbnailPath for preview in your UI
-  // Also set it in FileUploadConfig.thumbnailPath to reuse during upload
+  // Also set it in FileConfig.thumbnailPath to reuse during upload
 }
 ```
 
@@ -292,7 +292,7 @@ Configuration object for unified uploads.
 - `concurrentChunkUploadLimit` (optional): Max concurrent chunk uploads (default: 6)
 - `maxFileSizeMB` (optional): Maximum file size in MB (default: 4096)
 
-#### `FileUploadConfig`
+#### `FileConfig`
 
 Configuration for a single file upload.
 

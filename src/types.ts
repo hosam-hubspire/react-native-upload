@@ -28,7 +28,7 @@ export interface UploadProgress {
 /**
  * Configuration for uploading a single file.
  */
-export interface FileUploadConfig {
+export interface FileConfig {
   /** Local file path to upload */
   filePath: string;
   /** File size in bytes */

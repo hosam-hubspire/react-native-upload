@@ -1,7 +1,7 @@
 import { File } from "expo-file-system";
 import { fetch } from "expo/fetch";
 import {
-  FileUploadConfig,
+  FileConfig,
   UploadFileResult,
   UploadProgress,
   UnifiedUploadConfig,
@@ -141,7 +141,7 @@ async function readAndUploadFileAsChunks({
   contentType,
   extension,
   config,
-}: (FileUploadConfig & { fileIndex: number }) & {
+}: (FileConfig & { fileIndex: number }) & {
   partSize: number;
   totalParts: number;
   config: UnifiedUploadConfig;
@@ -393,7 +393,7 @@ async function readAndUploadFileAsChunks({
  * ```
  */
 async function uploadFile(
-  fileConfig: FileUploadConfig & { fileIndex: number },
+  fileConfig: FileConfig & { fileIndex: number },
   config: UnifiedUploadConfig
 ): Promise<UploadFileResult> {
   const { fileIndex, fileSize, mediaType } = fileConfig;
@@ -562,7 +562,7 @@ async function uploadFile(
  * ```
  */
 async function uploadMultipleFiles(
-  files: (FileUploadConfig & { fileIndex: number })[],
+  files: (FileConfig & { fileIndex: number })[],
   config: UnifiedUploadConfig
 ): Promise<UploadFileResult[]> {
   if (!files.length) return [];
@@ -573,8 +573,7 @@ async function uploadMultipleFiles(
   try {
     const uploadResponse = await mapConcurrent(
       files,
-      (file: FileUploadConfig & { fileIndex: number }) =>
-        uploadFile(file, config),
+      (file: FileConfig & { fileIndex: number }) => uploadFile(file, config),
       concurrentFileLimit
     );
 
@@ -597,7 +596,7 @@ async function uploadMultipleFiles(
  * @returns Promise resolving to the upload response with status, headers, and body
  */
 async function uploadSimpleFile(
-  fileConfig: FileUploadConfig & { fileIndex: number },
+  fileConfig: FileConfig & { fileIndex: number },
   signedUrl: string,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<{ status: number; headers: Record<string, string>; body: string }> {
@@ -767,7 +766,7 @@ async function uploadSimpleFile(
  */
 async function uploadMultipleSimpleFiles(
   files: Array<{
-    file: FileUploadConfig & { fileIndex: number };
+    file: FileConfig & { fileIndex: number };
     signedUrl: string;
     onProgress?: (progress: UploadProgress) => void;
   }>,
@@ -834,25 +833,26 @@ async function uploadMultipleSimpleFiles(
  * ```
  */
 export async function uploadFiles(
-  files: FileUploadConfig[],
+  files: FileConfig[],
   config: UnifiedUploadConfig
 ): Promise<UploadFileResult[]> {
   if (!files.length) return [];
 
   // Auto-assign fileIndex for all files (handles concurrent uploads)
   // fileIndex is internal only - not part of the public API
-  const filesWithIndices: (FileUploadConfig & { fileIndex: number })[] =
-    files.map((file) => ({
+  const filesWithIndices: (FileConfig & { fileIndex: number })[] = files.map(
+    (file) => ({
       ...file,
       fileIndex: nextFileIndex++,
-    }));
+    })
+  );
 
   const chunkThreshold =
     config.chunkThresholdBytes ?? DEFAULT_CHUNK_THRESHOLD_BYTES;
 
   // Separate files into chunked and simple upload groups
-  const chunkedFiles: (FileUploadConfig & { fileIndex: number })[] = [];
-  const simpleFiles: (FileUploadConfig & { fileIndex: number })[] = [];
+  const chunkedFiles: (FileConfig & { fileIndex: number })[] = [];
+  const simpleFiles: (FileConfig & { fileIndex: number })[] = [];
 
   filesWithIndices.forEach((file) => {
     if (file.fileSize >= chunkThreshold) {
