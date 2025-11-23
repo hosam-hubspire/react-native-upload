@@ -16,7 +16,7 @@ example/
 ## Features
 
 - ✅ Image and video selection from library or camera
-- ✅ Automatic video thumbnail generation using `expo-video-thumbnails`
+- ✅ Automatic video thumbnail generation on selection for preview using `expo-video-thumbnails`
 - ✅ **Automatic upload method selection** - Automatically uses chunked upload for large files and simple upload for smaller files
 - ✅ Chunked upload for large files (>= 5MB threshold) with progress tracking
 - ✅ Simple upload for smaller files (< 5MB threshold) with progress tracking
@@ -210,7 +210,7 @@ npm run web
 
 React Native Expo app demonstrating:
 - File selection from library or camera
-- Video thumbnail generation using `expo-video-thumbnails`
+- Video thumbnail generation on selection for preview using `expo-video-thumbnails` - Thumbnails are generated immediately when videos are selected and used for preview in the media list
 - **Unified upload API** - Single `uploadFiles` function that automatically selects chunked or simple upload based on file size
 - Automatic upload method selection (chunked for files >= 5MB, simple for files < 5MB)
 - Multiple file uploads (concurrent)

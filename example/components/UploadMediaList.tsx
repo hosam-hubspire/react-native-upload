@@ -70,6 +70,12 @@ export function UploadMediaList({
     const status = progress?.status || "uploading";
     const percentComplete = progress?.percentComplete || 0;
 
+    // Use thumbnail for videos if available, otherwise use filePath
+    const imageUri =
+      item.mediaType === "video" && item.thumbnailPath
+        ? item.thumbnailPath
+        : item.filePath;
+
     return (
       <TouchableOpacity
         style={styles.mediaItem}
@@ -77,13 +83,18 @@ export function UploadMediaList({
         activeOpacity={0.7}
       >
         <View style={styles.mediaThumbnail}>
-          <Image
-            source={{ uri: item.filePath }}
-            style={styles.thumbnailImage}
-          />
+          <Image source={{ uri: imageUri }} style={styles.thumbnailImage} />
 
-          <View style={styles.videoBadge}>
-            <Text style={styles.videoDuration}>
+          {/* Video indicator badge */}
+          {item.mediaType === "video" && (
+            <View style={styles.videoBadge}>
+              <Text style={styles.videoIcon}>▶</Text>
+            </View>
+          )}
+
+          {/* File size badge */}
+          <View style={styles.sizeBadge}>
+            <Text style={styles.sizeText}>
               {progress?.totalBytes
                 ? formatFileSize(progress.totalBytes)
                 : formatFileSize(item.fileSize)}
@@ -225,6 +236,22 @@ const styles = StyleSheet.create({
   },
   videoBadge: {
     position: "absolute",
+    top: 4,
+    left: 4,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  videoIcon: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  sizeBadge: {
+    position: "absolute",
     bottom: 4,
     right: 4,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
@@ -232,7 +259,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
   },
-  videoDuration: {
+  sizeText: {
     color: "#fff",
     fontSize: 10,
     fontWeight: "500",

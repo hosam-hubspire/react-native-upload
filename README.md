@@ -8,7 +8,7 @@ A generalized React Native package for file uploads with automatic chunking. Thi
 - ✅ Concurrent file and chunk uploads with progress tracking
 - ✅ Real-time progress tracking per file and overall progress
 - ✅ Support for photos and videos
-- ✅ Automatic video thumbnail generation using `expo-video-thumbnails`
+- ✅ Automatic video thumbnail generation using `expo-video-thumbnails` - Generate thumbnails on selection for preview or during upload
 - ✅ TypeScript support with full type definitions
 - ✅ Expo compatible
 - ✅ Error handling with detailed failure reasons
@@ -161,10 +161,49 @@ console.log("Upload results:", uploadResults);
 
 ### Automatic Video Thumbnail Generation
 
-The package automatically generates thumbnails for videos if `expo-video-thumbnails` is installed. You don't need to provide `thumbnailPath` - it will be generated automatically:
+The package automatically generates thumbnails for videos if `expo-video-thumbnails` is installed. You can generate thumbnails on selection for preview purposes, or let the package generate them during upload.
+
+#### Option 1: Generate Thumbnails on Selection (Recommended for UI Preview)
+
+Generate thumbnails immediately when videos are selected to use them for preview in your media list:
 
 ```typescript
-// Thumbnail will be auto-generated if expo-video-thumbnails is installed
+import {
+  generateVideoThumbnail,
+  FileUploadConfig,
+} from "@hubspire/react-native-upload";
+
+// When selecting videos
+const videoFile: FileUploadConfig = {
+  filePath: videoUri,
+  fileSize: videoSize,
+  mediaType: "video",
+  contentType: "video/mp4",
+  extension: "mp4",
+};
+
+// Generate thumbnail on selection for preview
+try {
+  const thumbnailPath = await generateVideoThumbnail(videoUri);
+  if (thumbnailPath) {
+    videoFile.thumbnailPath = thumbnailPath; // Use this for preview in your UI
+  }
+} catch (error) {
+  console.warn("Failed to generate thumbnail:", error);
+  // Continue without thumbnail - will be generated during upload if needed
+}
+
+// Use thumbnailPath in your UI for preview
+// When uploading, if thumbnailPath is provided, it will be reused (no regeneration needed)
+const results = await uploadFiles([videoFile], uploadConfig);
+```
+
+#### Option 2: Let Package Generate During Upload
+
+If you don't provide `thumbnailPath`, the package will automatically generate it during upload:
+
+```typescript
+// Thumbnail will be auto-generated during upload if expo-video-thumbnails is installed
 // fileIndex is automatically assigned by the package
 const videoFile: FileUploadConfig = {
   filePath: videoUri,
@@ -172,13 +211,17 @@ const videoFile: FileUploadConfig = {
   mediaType: "video",
   contentType: "video/mp4",
   extension: "mp4",
-  // thumbnailPath is optional - will be auto-generated if expo-video-thumbnails is installed
+  // thumbnailPath is optional - will be auto-generated during upload if not provided
 };
 
 const results = await uploadFiles([videoFile], uploadConfig);
 ```
 
-**Note:** Thumbnails are automatically generated for videos if `expo-video-thumbnails` is installed. You don't need to manually generate or provide thumbnails - the package handles this internally.
+**Note:**
+
+- If `thumbnailPath` is provided, it will be used during upload (no regeneration)
+- If `thumbnailPath` is not provided, thumbnails are automatically generated during upload if `expo-video-thumbnails` is installed
+- Generating thumbnails on selection allows you to use them for preview in your UI before upload
 
 ## API Reference
 
@@ -201,6 +244,38 @@ Uploads one or more files, automatically selecting chunked or simple upload base
 - Files with `fileSize < chunkThresholdBytes` use simple upload
 - All files are uploaded concurrently up to `concurrentFileUploadLimit`
 - Progress callbacks are called for both chunked and simple uploads
+
+#### `generateVideoThumbnail(videoUri, options?)`
+
+Generates a thumbnail from a video file using `expo-video-thumbnails`. This function is useful for generating thumbnails on selection to use for preview in your UI.
+
+**Parameters:**
+
+- `videoUri` (required): URI or path to the video file
+- `options` (optional): Configuration object
+  - `time` (optional): Time in milliseconds to capture thumbnail (default: 1000)
+  - `quality` (optional): Quality of thumbnail 0-1 (default: 0.8)
+
+**Returns:** `Promise<string | null>` - Promise resolving to the thumbnail URI, or `null` if `expo-video-thumbnails` is not available or generation fails.
+
+**Example:**
+
+```typescript
+import { generateVideoThumbnail } from "@hubspire/react-native-upload";
+
+// Generate thumbnail when video is selected
+const thumbnailPath = await generateVideoThumbnail(videoUri, {
+  time: 1000, // Capture at 1 second
+  quality: 0.8, // 80% quality
+});
+
+if (thumbnailPath) {
+  // Use thumbnailPath for preview in your UI
+  // Also set it in FileUploadConfig.thumbnailPath to reuse during upload
+}
+```
+
+**Note:** This function requires `expo-video-thumbnails` to be installed. If not installed, it returns `null` without throwing an error.
 
 ### Types
 
@@ -255,55 +330,6 @@ Progress information for a file upload.
 - `error` (optional): Error message or Error object if upload failed
 - `overallPercentComplete` (optional): Overall progress percentage across all files (0-100)
 - `totalUploadedBytes` (optional): Total bytes uploaded across all files
-
-## UI Component
-
-The package includes a ready-to-use React Native component for displaying upload progress:
-
-### `UploadMediaList`
-
-A gallery-style component that displays media items in a grid with individual progress indicators and an overall progress bar.
-
-```typescript
-import { UploadMediaList, uploadFiles, FileUploadConfig, UploadProgress } from "@hubspire/react-native-upload";
-
-const [files, setFiles] = useState<FileUploadConfig[]>([]);
-const [progressMap, setProgressMap] = useState<Map<number, UploadProgress>>(new Map());
-const [overallProgress, setOverallProgress] = useState(0);
-
-// Update progress in onProgress callback
-const config: UnifiedUploadConfig = {
-  // ... other config
-  onProgress: (progress) => {
-    setProgressMap((prev) => {
-      const newMap = new Map(prev);
-      newMap.set(progress.fileIndex, progress);
-      return newMap;
-    });
-    if (progress.overallPercentComplete !== undefined) {
-      setOverallProgress(progress.overallPercentComplete);
-    }
-  },
-};
-
-// Use the component
-<UploadMediaList
-  files={files}
-  progressMap={progressMap}
-  overallProgress={overallProgress}
-  numColumns={3}
-  onItemPress={(fileIndex, file) => {
-    console.log("Pressed file:", fileIndex, file);
-  }}
-/>
-```
-
-**Props:**
-- `files`: Array of `FileUploadConfig` objects
-- `progressMap`: Map of `fileIndex` to `UploadProgress` (update in `onProgress` callback)
-- `overallProgress`: Overall progress percentage (0-100)
-- `numColumns` (optional): Number of columns in grid (default: 3)
-- `onItemPress` (optional): Callback when a media item is pressed
 
 ## Example App
 
