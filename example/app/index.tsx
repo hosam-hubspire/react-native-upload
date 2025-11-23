@@ -335,34 +335,29 @@ export default function Index() {
         </View>
       )}
 
-      {/* {uploadResults.length > 0 && (
+      {uploadResults.filter((r) => r.status === "failed").length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Upload Results</Text>
-          {uploadResults.map((result, index) => (
-            <View key={index} style={styles.resultItem}>
-              <Text style={styles.resultText}>
-                File{" "}
-                {typeof result.fileIndex === "number"
-                  ? result.fileIndex + 1
-                  : index + 1}
-                :{" "}
-                {result.status === "failed" ? (
+          <Text style={styles.sectionTitle}>Upload Errors</Text>
+          {uploadResults
+            .filter((result) => result.status === "failed")
+            .map((result, index) => (
+              <View key={index} style={styles.resultItem}>
+                <Text style={styles.resultText}>
+                  File{" "}
+                  {typeof result.fileIndex === "number"
+                    ? result.fileIndex + 1
+                    : index + 1}
+                  :{" "}
                   <Text style={styles.errorText}>
-                    Failed -{" "}
                     {typeof result.error === "string"
                       ? result.error
                       : result.error?.message || "Upload failed"}
                   </Text>
-                ) : (
-                  <Text style={styles.successText} numberOfLines={0}>
-                    Success! Key: {result.key || "N/A"}
-                  </Text>
-                )}
-              </Text>
-            </View>
-          ))}
+                </Text>
+              </View>
+            ))}
         </View>
-      )} */}
+      )}
     </View>
   );
 }
