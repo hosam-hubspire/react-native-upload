@@ -1,10 +1,10 @@
-import { File } from "expo-file-system";
+import { File as ExpoFile } from "expo-file-system";
 import { fetch } from "expo/fetch";
 import {
-  FileConfig,
+  File,
   UploadFileResult,
   UploadProgress,
-  UnifiedUploadConfig,
+  UploadConfig,
   SignedUrlResponse,
 } from "./types";
 import { mapConcurrent, generateVideoThumbnail, getImageSize } from "./helpers";
@@ -89,7 +89,7 @@ async function uploadThumbnail({
     const { url, key } = response;
 
     // Read thumbnail file as bytes
-    const thumbnailFile = new File(thumbnailPath);
+    const thumbnailFile = new ExpoFile(thumbnailPath);
     const thumbnailBytes = await thumbnailFile.bytes();
 
     // Upload using fetch
@@ -141,10 +141,10 @@ async function readAndUploadFileAsChunks({
   contentType,
   extension,
   config,
-}: (FileConfig & { fileIndex: number }) & {
+}: File & {
   partSize: number;
   totalParts: number;
-  config: UnifiedUploadConfig;
+  config: UploadConfig;
 }): Promise<UploadFileResult[]> {
   let uploadedPartsCount = 0;
 
@@ -185,7 +185,7 @@ async function readAndUploadFileAsChunks({
     ) => {
       try {
         // Use new File API instead of deprecated readAsStringAsync
-        const file = new File(filePath);
+        const file = new ExpoFile(filePath);
         const handle = file.open();
 
         // Set offset to read from specific position
@@ -207,6 +207,10 @@ async function readAndUploadFileAsChunks({
 
         if (response.status === 200) {
           uploadedPartsCount++;
+
+          if (!fileIndex) {
+            throw new Error("File index is required");
+          }
 
           updateChunkUploadProgress(
             fileIndex,
@@ -320,6 +324,10 @@ async function readAndUploadFileAsChunks({
       }
     }
 
+    if (!fileIndex) {
+      throw new Error("File index is required");
+    }
+
     const processedETags: UploadFileResult[] = eTags.map((result: any) => {
       if (!result.error && result.eTag) {
         return {
@@ -393,10 +401,18 @@ async function readAndUploadFileAsChunks({
  * ```
  */
 async function uploadFile(
-  fileConfig: FileConfig & { fileIndex: number },
-  config: UnifiedUploadConfig
+  fileConfig: File,
+  config: UploadConfig
 ): Promise<UploadFileResult> {
   const { fileIndex, fileSize, mediaType } = fileConfig;
+  if (!fileIndex) {
+    return {
+      fileIndex: -1,
+      mediaType,
+      status: "failed",
+      error: "File index is required",
+    };
+  }
 
   const chunkSize = config.chunkSize || DEFAULT_CHUNK_SIZE;
   const maxFileSizeMB = config.maxFileSizeMB || DEFAULT_MAX_FILE_SIZE_MB;
@@ -562,8 +578,8 @@ async function uploadFile(
  * ```
  */
 async function uploadMultipleFiles(
-  files: (FileConfig & { fileIndex: number })[],
-  config: UnifiedUploadConfig
+  files: File[],
+  config: UploadConfig
 ): Promise<UploadFileResult[]> {
   if (!files.length) return [];
 
@@ -573,7 +589,7 @@ async function uploadMultipleFiles(
   try {
     const uploadResponse = await mapConcurrent(
       files,
-      (file: FileConfig & { fileIndex: number }) => uploadFile(file, config),
+      (file: File) => uploadFile(file, config),
       concurrentFileLimit
     );
 
@@ -596,15 +612,19 @@ async function uploadMultipleFiles(
  * @returns Promise resolving to the upload response with status, headers, and body
  */
 async function uploadSimpleFile(
-  fileConfig: FileConfig & { fileIndex: number },
+  fileConfig: File,
   signedUrl: string,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<{ status: number; headers: Record<string, string>; body: string }> {
-  const { filePath, fileSize } = fileConfig;
+  const { filePath, fileSize, fileIndex } = fileConfig;
 
   try {
+    if (!fileIndex) {
+      throw new Error("File index is required");
+    }
+
     // Read file as bytes
-    const file = new File(filePath);
+    const file = new ExpoFile(filePath);
     const fileBytes = await file.bytes();
 
     // Use XMLHttpRequest only if progress tracking is needed
@@ -612,7 +632,7 @@ async function uploadSimpleFile(
     if (onProgress) {
       // Set initial progress (0%) before starting upload
       onProgress({
-        fileIndex: fileConfig.fileIndex,
+        fileIndex,
         percentComplete: 0,
         uploadedBytes: 0,
         totalBytes: fileSize || fileBytes.length,
@@ -627,7 +647,7 @@ async function uploadSimpleFile(
           if (event.lengthComputable && onProgress) {
             const percentage = (event.loaded / event.total) * 100;
             onProgress({
-              fileIndex: fileConfig.fileIndex,
+              fileIndex,
               percentComplete: percentage,
               uploadedBytes: event.loaded,
               totalBytes: event.total,
@@ -641,7 +661,7 @@ async function uploadSimpleFile(
             // Ensure progress is set to 100% on completion (fallback if progress event didn't fire)
             if (onProgress) {
               onProgress({
-                fileIndex: fileConfig.fileIndex,
+                fileIndex,
                 percentComplete: 100,
                 uploadedBytes: fileSize || fileBytes.length,
                 totalBytes: fileSize || fileBytes.length,
@@ -675,7 +695,7 @@ async function uploadSimpleFile(
         xhr.addEventListener("error", () => {
           if (onProgress) {
             onProgress({
-              fileIndex: fileConfig.fileIndex,
+              fileIndex,
               percentComplete: 0,
               uploadedBytes: 0,
               totalBytes: fileSize || fileBytes.length,
@@ -689,7 +709,7 @@ async function uploadSimpleFile(
         xhr.addEventListener("abort", () => {
           if (onProgress) {
             onProgress({
-              fileIndex: fileConfig.fileIndex,
+              fileIndex,
               percentComplete: 0,
               uploadedBytes: 0,
               totalBytes: fileSize || fileBytes.length,
@@ -766,7 +786,7 @@ async function uploadSimpleFile(
  */
 async function uploadMultipleSimpleFiles(
   files: Array<{
-    file: FileConfig & { fileIndex: number };
+    file: File;
     signedUrl: string;
     onProgress?: (progress: UploadProgress) => void;
   }>,
@@ -833,26 +853,24 @@ async function uploadMultipleSimpleFiles(
  * ```
  */
 export async function uploadFiles(
-  files: FileConfig[],
-  config: UnifiedUploadConfig
+  files: File[],
+  config: UploadConfig
 ): Promise<UploadFileResult[]> {
   if (!files.length) return [];
 
   // Auto-assign fileIndex for all files (handles concurrent uploads)
   // fileIndex is internal only - not part of the public API
-  const filesWithIndices: (FileConfig & { fileIndex: number })[] = files.map(
-    (file) => ({
-      ...file,
-      fileIndex: nextFileIndex++,
-    })
-  );
+  const filesWithIndices: File[] = files.map((file) => ({
+    ...file,
+    fileIndex: nextFileIndex++,
+  }));
 
   const chunkThreshold =
     config.chunkThresholdBytes ?? DEFAULT_CHUNK_THRESHOLD_BYTES;
 
   // Separate files into chunked and simple upload groups
-  const chunkedFiles: (FileConfig & { fileIndex: number })[] = [];
-  const simpleFiles: (FileConfig & { fileIndex: number })[] = [];
+  const chunkedFiles: File[] = [];
+  const simpleFiles: File[] = [];
 
   filesWithIndices.forEach((file) => {
     if (file.fileSize >= chunkThreshold) {
@@ -902,7 +920,7 @@ export async function uploadFiles(
     : undefined;
 
   // Create config with wrapped callback
-  const configWithOverallProgress: UnifiedUploadConfig = {
+  const configWithOverallProgress: UploadConfig = {
     ...config,
     onProgress: wrappedOnProgress,
   };
@@ -1014,7 +1032,7 @@ export async function uploadFiles(
               }
               thumbnailKey = thumbnailResponse.key;
 
-              const thumbnailFile = new File(finalThumbnailPath);
+              const thumbnailFile = new ExpoFile(finalThumbnailPath);
               const thumbnailBytes = await thumbnailFile.bytes();
               await fetch(thumbnailResponse.url, {
                 method: "PUT",
@@ -1026,6 +1044,10 @@ export async function uploadFiles(
               // Continue without thumbnail
             }
           }
+        }
+
+        if (!file.fileIndex) {
+          throw new Error("File index is required");
         }
 
         resultMap.set(file.fileIndex, {
@@ -1046,6 +1068,9 @@ export async function uploadFiles(
 
   // Return results in the same order as input files
   filesWithIndices.forEach((file) => {
+    if (!file.fileIndex) {
+      throw new Error("File index is required");
+    }
     const result = resultMap.get(file.fileIndex);
     if (result) {
       results.push(result);

@@ -6,12 +6,12 @@ import {
   FlatList,
   TouchableOpacity,
 } from "react-native";
-import { UploadProgress, FileConfig } from "@hubspire/react-native-upload";
+import { UploadProgress, File } from "@hubspire/react-native-upload";
 import { Image } from "expo-image";
 
 export interface UploadMediaListProps {
   /** Array of file configurations being uploaded */
-  files: FileConfig[];
+  files: File[];
   /** Map of fileIndex to upload progress */
   progressMap: Map<number, UploadProgress>;
   /** Overall progress percentage (0-100) */
@@ -19,7 +19,7 @@ export interface UploadMediaListProps {
   /** Number of columns in the grid (default: 3) */
   numColumns?: number;
   /** Callback when a media item is pressed */
-  onItemPress?: (fileIndex: number, file: FileConfig) => void;
+  onItemPress?: (fileIndex: number, file: File) => void;
 }
 
 /**
@@ -56,13 +56,7 @@ export function UploadMediaList({
     return formatted + " " + sizes[i];
   };
 
-  const renderMediaItem = ({
-    item,
-    index,
-  }: {
-    item: FileConfig;
-    index: number;
-  }) => {
+  const renderMediaItem = ({ item, index }: { item: File; index: number }) => {
     const progress = progressMap.get(index);
     const status = progress?.status || "uploading";
     const percentComplete = progress?.percentComplete || 0;
@@ -156,7 +150,7 @@ export function UploadMediaList({
         data={files}
         renderItem={renderMediaItem}
         numColumns={numColumns}
-        keyExtractor={(item: FileConfig, index: number) => `media-${index}`}
+        keyExtractor={(item: File, index: number) => `media-${index}`}
         contentContainerStyle={styles.gridContainer}
         columnWrapperStyle={numColumns > 1 ? styles.row : undefined}
       />

@@ -28,7 +28,9 @@ export interface UploadProgress {
 /**
  * Configuration for uploading a single file.
  */
-export interface FileConfig {
+export interface File {
+  /** Unique index identifier for this file */
+  fileIndex?: number;
   /** Local file path to upload */
   filePath: string;
   /** File size in bytes */
@@ -99,7 +101,7 @@ export interface UploadFileResult {
  * Unified configuration for file uploads that automatically switches between
  * chunked and simple uploads based on file size.
  */
-export interface UnifiedUploadConfig {
+export interface UploadConfig {
   /**
    * File size threshold in bytes to determine when to use chunked upload.
    * Files >= this size will use chunked upload, files < this size will use simple upload.

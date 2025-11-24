@@ -3,7 +3,7 @@ export { generateVideoThumbnail } from "./helpers";
 
 export type {
   UploadProgress,
-  FileConfig,
+  File,
   UploadFileResult,
-  UnifiedUploadConfig,
+  UploadConfig,
 } from "./types";
